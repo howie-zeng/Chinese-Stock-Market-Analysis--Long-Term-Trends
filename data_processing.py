@@ -83,9 +83,20 @@ def data_preprocessing(data_fs):
     data_fs = data_fs.reset_index(drop=True)
     return data_fs
 
-def filter_by_market_capitalization(data, threshold = 0.3):
-    mean_capitalization = data.groupby('Ticker').agg({"current_assets": np.mean})
-    mean_capitalization['rank'] = mean_capitalization['current_assets'].rank(pct=True)
+def fillnas_and_convert(data, convert_to = "M"):
+
+    if not isinstance(data.index, pd.DatetimeIndex):
+        data.index = pd.to_datetime(data.index)
+
+    data_imputed = data.groupby("Ticker", group_keys=False).apply(lambda x: x.fillna(method="ffill").fillna(method="bfill"))
+    data_imputed = data_imputed.groupby('Ticker', group_keys=False).resample(convert_to, origin='start').first().dropna(axis = 1, how='all')
+    data_imputed.index = data_imputed.index.map(lambda idx: pd.Timestamp(year=idx.year, month=idx.month, day=1))
+
+    return data_imputed
+
+def filter_by_market_capitalization(data, threshold = 0.3, variable_name = 'current_assets'):
+    mean_capitalization = data.groupby('Ticker').agg({variable_name: np.mean})
+    mean_capitalization['rank'] = mean_capitalization[variable_name].rank(pct=True)
 
     top_70 = mean_capitalization[mean_capitalization['rank'] >  threshold].index
     bottom_30 = mean_capitalization[mean_capitalization['rank'] <=  threshold].index

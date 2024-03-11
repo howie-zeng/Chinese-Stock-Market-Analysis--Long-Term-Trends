@@ -9,6 +9,8 @@ import torch.optim as optim
 import pandas as pd
 from pytorch_forecasting import TimeSeriesDataSet, GroupNormalizer, Baseline
 from sklearn.base import clone
+from sklearn.preprocessing import StandardScaler
+import copy
 
 import parameters as p
 
@@ -21,7 +23,10 @@ class BaseModel:
             return self.model.predict(X)
         else:
             raise NotImplementedError
-        
+            
+    def fit(self, X, y):
+        return self.model.fit(X, y)
+             
 class OLSModel(BaseModel):
     def __init__(self, params=p.ols_params):
         super().__init__()
@@ -43,17 +48,12 @@ class ElasticNetModel(BaseModel):
             params = {}
         self.model = ElasticNet(**params)
 
-    def fit(self, X, y):
-        self.model.fit(X, y)
-
 class GBRTModel(BaseModel):
     def __init__(self, params=p.gbrt_params):
         super().__init__()
         if params is None:
             params = {}
         self.model = GradientBoostingRegressor(**params)
-    def fit(self, X, y):
-        self.model.fit(X, y)
 
 class RFModel(BaseModel):
     def __init__(self, params=p.rf_params):
@@ -62,9 +62,6 @@ class RFModel(BaseModel):
             params = {}
         self.model = RandomForestRegressor(**params)
 
-    def fit(self, X, y):
-        self.model.fit(X, y)
-
 class XGBoostModel(BaseModel):
     def __init__(self, params=p.xgboost_params):
         super().__init__()
@@ -72,24 +69,20 @@ class XGBoostModel(BaseModel):
             params = {}
         self.model = xgb.XGBRegressor(**params)
 
-    def fit(self, X, y):
-        self.model.fit(X, y)
-
 class NNModel(BaseModel):
-    def __init__(self, params=p.nn_params):
+    def __init__(self, params=p.nn_params, input_dim=1, num_layers=1):
         super().__init__()
         if params is None:
             params = {}
-        
-        input_dim = params.get("input_dim", 1)
-        architecture = params.get("architecture", [64, 64])
+        self.input_dim = input_dim
+        architecture = params.get("architecture", [64] * num_layers)
         output_dim = params.get("output_dim", 1)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         layers = []
         for i, units in enumerate(architecture):
             if i == 0:
-                layers.append(nn.Linear(input_dim, units))
+                layers.append(nn.Linear(self.input_dim, units))
             else:
                 layers.append(nn.Linear(architecture[i-1], units))
             layers.append(nn.ReLU())
@@ -98,30 +91,42 @@ class NNModel(BaseModel):
         self.model = nn.Sequential(*layers).to(self.device)
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.model.parameters())
-
-    def fit(self, X, y, epochs=10, batch_size=32):
-        X = torch.tensor(X, dtype=torch.float32)
-        y = torch.tensor(y, dtype=torch.float32).view(-1, 1)
         
-        self.model.train()
-        for _ in range(epochs):
-            permutation = torch.randperm(X.size()[0])
-            for i in range(0, X.size()[0], batch_size):
-                indices = permutation[i:i+batch_size]
-                batch_x, batch_y = X[indices], y[indices]
+    def preprocess_nas(self, X):
+        X_mask = X.isnull().astype(float)
+        X_preprocessed = pd.concat([X, X_mask], axis=1)
+        return X_preprocessed
 
-                self.optimizer.zero_grad()
-                outputs = self.model(batch_x)
-                loss = self.criterion(outputs, batch_y)
+    def fit(self, X, Y, num_epochs=20, batch_size=32):
+        # X = self.preprocess_nas(X)
+        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
+        Y_tensor = torch.tensor(Y, dtype=torch.float32).to(self.device)
+
+        dataset = torch.utils.data.TensorDataset(X_tensor, Y_tensor)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        
+        for epoch in range(num_epochs):
+            epoch_loss = 0.0
+            for batch_X, batch_y in dataloader:  
+                self.optimizer.zero_grad() 
+                output = self.model(batch_X)  
+                loss = self.criterion(output, batch_y) 
                 loss.backward()
-                self.optimizer.step()
+                self.optimizer.step()  
 
+            #     epoch_loss += loss.item() * batch_X.size(0)
+            # epoch_loss /= len(dataloader.dataset)
+            # print(f'Epoch [{epoch}/{num_epochs}], Loss: {epoch_loss:.4f}')
+    
     def predict(self, X):
+        # X = self.preprocess_nas(X)
+        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
         self.model.eval()
-        X = torch.tensor(X, dtype=torch.float32).to(self.device)
         with torch.no_grad():
-            predictions = self.model(X)
+            predictions = self.model(X_tensor)
         return predictions.cpu().numpy()
+
+        
 
 def split_train_val(data_input:pd.DataFrame,
                     target_col:str='alpha', time_col:str='days_from_start',
@@ -181,17 +186,24 @@ def train(data: pd.DataFrame, model, start = p.training_sample[0], end = p.train
     data_training = data_training.sort_index()
     stock_ticker = data_training['Ticker'].unique()
     model_dict = {}
+    scaler_dict = {}
     for stock in stock_ticker:
-        model_clone = clone(model)
+        model_clone = copy.deepcopy(model)
         model_name = f"{model.__class__.__name__}_{stock}"
+
         data_stock = data_training[data_training['Ticker'] == stock]
         X = data_stock.drop(['alpha', 'Ticker', 'sector'],axis=1)
         Y = data_stock['alpha']
+
+        scaler = StandardScaler()
+        X = scaler.fit_transform(X)
+        scaler_dict[stock] = scaler
+
         model_clone.fit(X, Y)
         model_dict[model_name] = model_clone
-    return model_dict  
+    return model_dict, scaler_dict
 
-def validation(data: pd.DataFrame, model_dict, start = p.validation_sample[0], end = p.validation_sample[1]):
+def validation(data: pd.DataFrame, model_dict, scaler_dict, start = p.validation_sample[0], end = p.validation_sample[1]):
     if not isinstance(data.index, pd.DatetimeIndex):
         data.index = pd.to_datetime(data.index)
     data_validation = data.loc[(data.index >= start) & (data.index <= end)]
@@ -203,6 +215,10 @@ def validation(data: pd.DataFrame, model_dict, start = p.validation_sample[0], e
         data_stock = data_validation[data_validation['Ticker'] == stock]
         X = data_stock.drop(['alpha', 'Ticker', 'sector'],axis=1)
         Y = data_stock['alpha']
+
+        scaler = scaler_dict[stock]
+        X = scaler.transform(X)
+
         model_name = f"{model_type}_{stock}"
         if model_name in model_dict:
             model = model_dict[model_name]
