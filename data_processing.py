@@ -6,7 +6,7 @@ from sklearn.feature_selection import SelectFromModel
 
 offset = 252
 
-def data_preprocessing(data):
+def data_loading(data):
     data.drop(data.index[:offset], inplace=True)
     data.index = pd.to_datetime(data.index)
     data['sector'] = data['sector'].fillna("None")
@@ -54,3 +54,31 @@ def rf_feature_selection(X, Y):
     rf_feature = X.loc[:,rf_support].columns.tolist() # type: ignore
 
     return rf_feature, rf_selector
+
+def data_preprocessing(data_fs):
+    '''
+    A workflow to preprocess the data.
+    Add time features into the data.
+    '''
+    
+    # other preprocessing
+    date_col = pd.to_datetime(data_fs.index)
+    earliest_time = pd.to_datetime(data_fs.index.min())
+    f_dict = {}
+    day_cnt = 0
+    max_diff = (date_col - earliest_time).days.nunique()
+    for day in date_col.unique():
+        if day_cnt <= max_diff:
+            f_dict[day] = day_cnt
+        day_cnt += 1
+
+    # TODO: add quarter (+ last reported quarter)
+    data_fs['date'] = date_col
+    data_fs['days_from_start'] = [f_dict[d] for d in date_col]
+    # data_fs['day_of_month'] = date_col.day # type: ignore
+    # data_fs['day_of_week'] = date_col.dayofweek # type: ignore
+    # data_fs['month'] = date_col.month # type: ignore
+    data_fs.sort_index(inplace=True)
+
+    data_fs = data_fs.reset_index(drop=True)
+    return data_fs

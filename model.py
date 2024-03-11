@@ -6,6 +6,8 @@ import xgboost as xgb
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import pandas as pd
+from pytorch_forecasting import TimeSeriesDataSet, GroupNormalizer, Baseline
 
 import parameters as p
 
@@ -128,3 +130,55 @@ def calculate_r2_oos(y_hat, y):
     SST = sum(y)
     res = 1 - SSR/SST
     return res
+
+
+def split_train_val(data_input:pd.DataFrame,
+                    target_col:str='alpha', time_col:str='days_from_start',
+                    group_cols:list=['Ticker', 'sector'],\
+                    
+                    time_varying_known_reals:list=["date", 'days_from_start',],
+                                                #    'day_of_month', 'day_of_week',
+                                                #    'month'],
+                    min_prediction_length:int=p.offset, 
+                    max_prediction_length:int=p.offset,
+                    min_encoder_length:int=p.offset//2,
+                    max_encoder_length:int = p.history_length,
+                    batch_size:int=64):
+    '''
+    Initialize the training and validation sets.
+    All the parameters are set in the daily_parameters.py file.
+    Only one day is used as the validation set.
+    NOTE: the target, the group columns, and the time varying known reals are hard coded here.
+    '''
+    # split the data into training and validation sets
+    # max_encoder_length = data_input[time_col].nunique()
+    training_cutoff = data_input[time_col].max() - 1
+
+    cols_to_remove = [target_col] + group_cols + [time_varying_known_reals]
+    variable_list = [col for col in data_input.columns if col not in cols_to_remove]
+
+    training = TimeSeriesDataSet(
+        data_input[lambda x: x[time_col] <= training_cutoff], # type: ignore
+        time_idx=time_col,
+        target=target_col,
+        group_ids=[group_cols[0]],
+        min_encoder_length=min_encoder_length,
+        max_encoder_length=max_encoder_length,
+        min_prediction_length=min_prediction_length,
+        max_prediction_length=max_prediction_length,
+        static_categoricals=group_cols,
+        time_varying_known_reals=time_varying_known_reals[:2], # REVIEW: change back to full list 
+        time_varying_unknown_reals=[target_col] + variable_list,
+        lags={target_col:[1, 5, 25, 50, 75, 252]},
+        add_relative_time_idx=True,
+        add_target_scales=True,
+        add_encoder_length=True,
+        allow_missing_timesteps=True
+    )
+
+    validation = TimeSeriesDataSet.from_dataset(training, data_input, predict=True, stop_randomization=True)
+
+    train_dataloader = training.to_dataloader(train=True, batch_size=batch_size, num_workers=-1)
+    val_dataloader = validation.to_dataloader(train=False, batch_size=batch_size*10, num_workers=-1)
+
+    return training, validation, train_dataloader, val_dataloader
