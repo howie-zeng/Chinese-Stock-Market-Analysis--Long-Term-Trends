@@ -7,6 +7,7 @@ testing_sample= ['2019-01-01', '2024-12-31']
 
 # Parameters for OLS
 ols_params = {
+    "n_jobs": -1
 }
 
 # Parameters for LASSO

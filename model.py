@@ -75,6 +75,7 @@ class NNModel(BaseModel):
         if params is None:
             params = {}
         self.input_dim = input_dim
+        self.num_layers = num_layers
         architecture = params.get("architecture", [64] * num_layers)
         output_dim = params.get("output_dim", 1)
 
@@ -89,6 +90,7 @@ class NNModel(BaseModel):
         layers.append(nn.Linear(architecture[-1], output_dim))
         
         self.model = nn.Sequential(*layers).to(self.device)
+        self.name = f"{self.__class__.__name__}_nn{num_layers}"
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.model.parameters())
         
@@ -97,7 +99,7 @@ class NNModel(BaseModel):
         X_preprocessed = pd.concat([X, X_mask], axis=1)
         return X_preprocessed
 
-    def fit(self, X, Y, num_epochs=20, batch_size=32):
+    def fit(self, X, Y, num_epochs=5, batch_size=32):
         # X = self.preprocess_nas(X)
         X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
         Y_tensor = torch.tensor(Y, dtype=torch.float32).to(self.device)
