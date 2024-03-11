@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 import pandas as pd
 from pytorch_forecasting import TimeSeriesDataSet, GroupNormalizer, Baseline
+from sklearn.base import clone
 
 import parameters as p
 
@@ -121,16 +122,6 @@ class NNModel(BaseModel):
         with torch.no_grad():
             predictions = self.model(X)
         return predictions.cpu().numpy()
-    
-def calculate_r2_oos(y_hat, y):
-    assert len(y_hat) == len(y)
-    n = len(y_hat)
-    mean_hat = sum(y_hat) / n
-    SSR = sum((y - mean_hat)^2)
-    SST = sum(y)
-    res = 1 - SSR/SST
-    return res
-
 
 def split_train_val(data_input:pd.DataFrame,
                     target_col:str='alpha', time_col:str='days_from_start',
@@ -182,3 +173,42 @@ def split_train_val(data_input:pd.DataFrame,
     val_dataloader = validation.to_dataloader(train=False, batch_size=batch_size*10, num_workers=-1)
 
     return training, validation, train_dataloader, val_dataloader
+
+def train(data: pd.DataFrame, model, start = p.training_sample[0], end = p.training_sample[1]):
+    if not isinstance(data.index, pd.DatetimeIndex):
+        data.index = pd.to_datetime(data.index)
+    data_training = data.loc[(data.index >= start) & (data.index <= end)]
+    data_training = data_training.sort_index()
+    stock_ticker = data_training['Ticker'].unique()
+    model_dict = {}
+    for stock in stock_ticker:
+        model_clone = clone(model)
+        model_name = f"{model.__class__.__name__}_{stock}"
+        data_stock = data_training[data_training['Ticker'] == stock]
+        X = data_stock.drop(['alpha', 'Ticker', 'sector'],axis=1)
+        Y = data_stock['alpha']
+        model_clone.fit(X, Y)
+        model_dict[model_name] = model_clone
+    return model_dict  
+
+def validation(data: pd.DataFrame, model_dict, start = p.validation_sample[0], end = p.validation_sample[1]):
+    if not isinstance(data.index, pd.DatetimeIndex):
+        data.index = pd.to_datetime(data.index)
+    data_validation = data.loc[(data.index >= start) & (data.index <= end)]
+    data_validation = data_validation.sort_index()
+    stock_ticker = data_validation['Ticker'].unique()
+    model_type = list(model_dict.keys())[0].split("_",1)[0]
+    res_validation = []
+    for stock in stock_ticker:
+        data_stock = data_validation[data_validation['Ticker'] == stock]
+        X = data_stock.drop(['alpha', 'Ticker', 'sector'],axis=1)
+        Y = data_stock['alpha']
+        model_name = f"{model_type}_{stock}"
+        if model_name in model_dict:
+            model = model_dict[model_name]
+            predictions = model.predict(X)
+            for true_value, prediction in zip(Y, predictions):
+                res_validation.append((true_value, prediction, stock))
+    results_df = pd.DataFrame(res_validation, columns=['Y', 'prediction', 'Ticker'])
+    return results_df
+

@@ -82,3 +82,12 @@ def data_preprocessing(data_fs):
 
     data_fs = data_fs.reset_index(drop=True)
     return data_fs
+
+def filter_by_market_capitalization(data, threshold = 0.3):
+    mean_capitalization = data.groupby('Ticker').agg({"current_assets": np.mean})
+    mean_capitalization['rank'] = mean_capitalization['current_assets'].rank(pct=True)
+
+    top_70 = mean_capitalization[mean_capitalization['rank'] >  threshold].index
+    bottom_30 = mean_capitalization[mean_capitalization['rank'] <=  threshold].index
+    
+    return top_70, bottom_30
