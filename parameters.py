@@ -5,32 +5,36 @@ validation_sample = ['2016-01-01', '2018-12-31']
 testing_sample= ['2019-01-01', '2024-12-31']
 
 
-# Parameters for OLS
+# Parameters 
 ols_params = {
-    "n_jobs": -1
 }
 
-# Parameters for LASSO
+ols3_params = { 
+}
+
+pls_params = {
+
+}
+
 lasso_params = {
 }
-# Parameters for ElasticNet
+
 elasticnet_params = {
 }
 
-# Parameters for GBRT
 gbrt_params = {
 }
 
-# Parameters for RF
 rf_params = {
-    "n_jobs": -1
 }
 
-# Parameters for XGBoost
 xgboost_params = {
-    "n_jobs": -1
 }
 
-# Parameters for NN
+vasa_params = {
+}
+
 nn_params = {
 }
+
+

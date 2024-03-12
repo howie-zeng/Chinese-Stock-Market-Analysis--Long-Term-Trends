@@ -102,3 +102,4 @@ def filter_by_market_capitalization(data, threshold = 0.3, variable_name = 'curr
     bottom_30 = mean_capitalization[mean_capitalization['rank'] <=  threshold].index
     
     return top_70, bottom_30
+

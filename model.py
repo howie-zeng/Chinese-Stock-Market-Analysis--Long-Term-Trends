@@ -1,6 +1,6 @@
 import statsmodels.api as sm
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.linear_model import LinearRegression, Lasso, ElasticNet
+from sklearn.linear_model import LinearRegression, Lasso, ElasticNet, HuberRegressor
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor 
 import xgboost as xgb
 import torch
@@ -11,8 +11,11 @@ from pytorch_forecasting import TimeSeriesDataSet, GroupNormalizer, Baseline
 from sklearn.base import clone
 from sklearn.preprocessing import StandardScaler
 import copy
+import optuna 
+
 
 import parameters as p
+
 
 class BaseModel:
     def __init__(self):
@@ -32,14 +35,28 @@ class OLSModel(BaseModel):
         super().__init__()
         if params is None:
             params = {}
-        self.model = LinearRegression(**params)
+        self.model = HuberRegressor(**params)
+
+class OLS3Model(BaseModel):
+    def __init__(self, params=p.ols3_params):
+        super().__init__()
+        if params is None:
+            params = {}
+        self.model = HuberRegressor(**params)
+
+class PLSModel(BaseModel):
+    def __init__(self, params=p.pls_params):
+        super().__init__()
+        if params is None:
+            params = {}
+        self.model = PLSRegression(**params)
 
 class LASSOModel(BaseModel):
     def __init__(self, params=p.lasso_params):
         super().__init__()
         if params is None:
             params = {}
-        self.model = Lasso(**params)
+        self.model = HuberRegressor(**params)
 
 class ElasticNetModel(BaseModel):
     def __init__(self, params=p.elasticnet_params):
@@ -60,14 +77,21 @@ class RFModel(BaseModel):
         super().__init__()
         if params is None:
             params = {}
-        self.model = RandomForestRegressor(**params)
+        self.model = RandomForestRegressor(**params, n_jobs=-1)
 
 class XGBoostModel(BaseModel):
     def __init__(self, params=p.xgboost_params):
         super().__init__()
         if params is None:
             params = {}
-        self.model = xgb.XGBRegressor(**params)
+        self.model = xgb.XGBRegressor(**params, n_jobs=-1)
+
+# class VASAModel(BaseModel):
+#     def __init__(self, params=p.vasa_params):
+#         super().__init__()
+#         if params is None:
+#             params = {}
+#         self.model = None
 
 class NNModel(BaseModel):
     def __init__(self, params=p.nn_params, input_dim=1, num_layers=1):
@@ -186,47 +210,30 @@ def train(data: pd.DataFrame, model, start = p.training_sample[0], end = p.train
         data.index = pd.to_datetime(data.index)
     data_training = data.loc[(data.index >= start) & (data.index <= end)]
     data_training = data_training.sort_index()
-    stock_ticker = data_training['Ticker'].unique()
-    model_dict = {}
-    scaler_dict = {}
-    for stock in stock_ticker:
-        model_clone = copy.deepcopy(model)
-        model_name = f"{model.__class__.__name__}_{stock}"
 
-        data_stock = data_training[data_training['Ticker'] == stock]
-        X = data_stock.drop(['alpha', 'Ticker', 'sector'],axis=1)
-        Y = data_stock['alpha']
+    X = data_training.drop(['alpha', 'Ticker', 'sector'],axis=1)
+    Y = data_training['alpha']
 
-        scaler = StandardScaler()
-        X = scaler.fit_transform(X)
-        scaler_dict[stock] = scaler
+    scaler = StandardScaler()
+    X = scaler.fit_transform(X)
 
-        model_clone.fit(X, Y)
-        model_dict[model_name] = model_clone
-    return model_dict, scaler_dict
+    model.fit(X, Y)
+    return model, scaler
 
-def validation(data: pd.DataFrame, model_dict, scaler_dict, start = p.validation_sample[0], end = p.validation_sample[1]):
+def validation(data: pd.DataFrame, model_fitted, scaler, start = p.validation_sample[0], end = p.validation_sample[1], tuning = False):
     if not isinstance(data.index, pd.DatetimeIndex):
         data.index = pd.to_datetime(data.index)
     data_validation = data.loc[(data.index >= start) & (data.index <= end)]
     data_validation = data_validation.sort_index()
-    stock_ticker = data_validation['Ticker'].unique()
-    model_type = list(model_dict.keys())[0].split("_",1)[0]
-    res_validation = []
-    for stock in stock_ticker:
-        data_stock = data_validation[data_validation['Ticker'] == stock]
-        X = data_stock.drop(['alpha', 'Ticker', 'sector'],axis=1)
-        Y = data_stock['alpha']
-
-        scaler = scaler_dict[stock]
-        X = scaler.transform(X)
-
-        model_name = f"{model_type}_{stock}"
-        if model_name in model_dict:
-            model = model_dict[model_name]
-            predictions = model.predict(X)
-            for true_value, prediction in zip(Y, predictions):
-                res_validation.append((true_value, prediction, stock))
-    results_df = pd.DataFrame(res_validation, columns=['Y', 'prediction', 'Ticker'])
+    X = data_validation.drop(['alpha', 'Ticker', 'sector'],axis=1)
+    Y = data_validation['alpha']
+    X = scaler.transform(X)
+    predictions = model_fitted.predict(X)
+    results_df = pd.DataFrame()
+    results_df['Y'] = Y
+    results_df['prediction'] = predictions
+    results_df['Ticker'] = data_validation['Ticker']
     return results_df
+
+
 
