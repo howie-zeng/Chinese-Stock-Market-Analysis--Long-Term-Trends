@@ -1,4 +1,3 @@
-import statsmodels.api as sm
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import LinearRegression, Lasso, ElasticNet, HuberRegressor
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor 
@@ -56,7 +55,7 @@ class LASSOModel(BaseModel):
         super().__init__()
         if params is None:
             params = {}
-        self.model = HuberRegressor(**params)
+        self.model = Lasso(**params)
 
 class ElasticNetModel(BaseModel):
     def __init__(self, params=p.elasticnet_params):
@@ -86,12 +85,12 @@ class XGBoostModel(BaseModel):
             params = {}
         self.model = xgb.XGBRegressor(**params, n_jobs=-1)
 
-# class VASAModel(BaseModel):
-#     def __init__(self, params=p.vasa_params):
-#         super().__init__()
-#         if params is None:
-#             params = {}
-#         self.model = None
+class VASAModel(BaseModel):
+    def __init__(self, params=p.vasa_params):
+        super().__init__()
+        if params is None:
+            params = {}
+        self.model = None
 
 class NNModel(BaseModel):
     def __init__(self, params=p.nn_params, input_dim=1, num_layers=1):
