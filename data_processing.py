@@ -72,3 +72,6 @@ def filter_by_market_capitalization(data, threshold = 0.3, variable_name = 'curr
     
     return top_70, bottom_30
 
+
+
+

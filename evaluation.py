@@ -141,4 +141,46 @@ def reduction_in_r2(model_classes, X_train, y_train, features, permutation_impor
     importance_df = pd.DataFrame(importance_dict, index=features)
     return importance_df, percentage_change_df
 
+def sort_into_deciles(predictions):
+    return predictions.groupby(predictions.index).transform(lambda x: pd.qcut(x, 10, labels=False)).values + 1
+
+def form_portfolios(model_res, market_cap):
+    stock_returns = model_res['y']
+    performances = {}
+
+    for model_name in model_res.drop(columns=['y']).columns:
+        deciles = sort_into_deciles(model_res[model_name])
+        decile_weights = market_cap.groupby(deciles).apply(lambda x: x / x.sum())
+
+        long_short_returns = (
+            (stock_returns[deciles == 10] * decile_weights[deciles == 10]).sum() -
+            (stock_returns[deciles == 1] * decile_weights[deciles == 1]).sum()
+        )
+
+        long_only_returns = (stock_returns[deciles == 10] * decile_weights[deciles == 10]).sum()
+
+        performances[model_name] = {
+            'long_short': long_short_returns,
+            'long_only': long_only_returns
+        }
+    return performances
+
+def calculate_performance_statistics(portfolio_returns):
+    statistics = {}
+    for model_name, returns in portfolio_returns.items():
+        avg_return = np.mean(returns)
+        std = np.std(returns)
+        sharpe_ratio = avg_return / std if std != 0 else 0
+        max_drawdown = np.max(np.maximum.accumulate(returns) - returns)  # Simplified calculation
+        max_1m_loss = np.min(returns)
+
+        statistics[model_name] = {
+            'Avg': avg_return * 100,
+            'Std': std * 100,
+            'Sharpe Ratio': sharpe_ratio,
+            'Max Drawdown': max_drawdown * 100,
+            'Max 1M Loss': max_1m_loss * 100
+        }
+    return pd.DataFrame(statistics).T
+
 

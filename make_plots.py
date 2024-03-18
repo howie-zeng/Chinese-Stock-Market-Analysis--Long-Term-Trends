@@ -40,5 +40,9 @@ def characteristic_feature_importance(importance_df):
     return sorted_df
 
 def differences_in_feature_importance(first, second):
+    # all models
+    # different kinds of models
+    # NN model
+    # different category of feature
     raise NotImplementedError
 

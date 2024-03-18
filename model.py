@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 import numpy as np
 import copy
 import optuna 
+from tqdm import tqdm
 
 
 import parameters as p
@@ -123,7 +124,8 @@ class NNModel(BaseModel):
         X_preprocessed = pd.concat([X, X_mask], axis=1)
         return X_preprocessed
 
-    def fit(self, X, y, num_epochs=5, batch_size=32):
+
+    def fit(self, X, y, num_epochs=50, batch_size=32):
         # X = self.preprocess_nas(X)
         if isinstance(X, pd.DataFrame):
             X_numpy = X.values.astype(np.float32)
@@ -134,19 +136,23 @@ class NNModel(BaseModel):
 
         dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
-        
-        for epoch in range(num_epochs):
+
+        best_loss = float('inf')
+        patience_count = 0
+
+        progress_bar = tqdm(range(num_epochs), desc="Training")
+        for epoch in progress_bar:
             epoch_loss = 0.0
-            for batch_X, batch_y in dataloader:  
+            for batch_X, batch_y in dataloader:
                 self.optimizer.zero_grad() 
                 output = self.model(batch_X)  
                 loss = self.criterion(output, batch_y) 
                 loss.backward()
                 self.optimizer.step()  
 
-            #     epoch_loss += loss.item() * batch_X.size(0)
-            # epoch_loss /= len(dataloader.dataset)
-            # print(f'Epoch [{epoch}/{num_epochs}], Loss: {epoch_loss:.4f}')
+                epoch_loss += loss.item() * batch_X.size(0)
+            epoch_loss /= len(dataloader.dataset)
+            progress_bar.set_postfix({"loss": epoch_loss})
     
     def predict(self, X):
         # X = self.preprocess_nas(X)
@@ -184,18 +190,13 @@ def split_train_val_test(data: pd.DataFrame, stockID="Ticker", predictor="adjClo
 
 def train(X, y, model):
     scaler = StandardScaler()
-    X = scaler.fit_transform(X)
-
-    model.fit(X, y)
+    model.fit(scaler.fit_transform(X), y)
     return model, scaler
 
-def validation(X, y, model_fitted, scaler):
-    X = scaler.transform(X)
-    predictions = model_fitted.predict(X)
-    results_df = pd.DataFrame()
-    results_df['y'] = y
-    results_df['y_pred'] = predictions
-    return results_df
+def validation(X, model_fitted, scaler):
+    predictions = model_fitted.predict(scaler.transform(X))
+    return predictions
+
 
 
 
