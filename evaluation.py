@@ -3,22 +3,22 @@ import numpy as np
 import optuna
 from functools import partial
 from tqdm import tqdm
-
+from sklearn.inspection import permutation_importance
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 import parameters as p
 import model as m
 
 def calculate_r2_oos(y, y_hat):
     assert len(y_hat) == len(y)
-    n = len(y_hat)
-    mean_hat = np.mean(y_hat)
-    SSR = np.sum((y - mean_hat)**2)
+    SSR = np.sum((y - y_hat)**2)
     SST = np.sum(y)
     res = 1 - SSR/SST
     return res
 
-def hyperparameter_tuning(data, model_classes, n_trials=100):
-    def objective(trial, data, model_class, model_name):
+def hyperparameter_tuning(X_train, y_train, X_val, y_val, model_classes, n_trials=100):
+    def objective(trial, X_train, y_train, X_val, y_val, model_class, model_name):
         params = {}
         if model_name == 'OLSModel' or model_name == 'OLS3Model':
             epsilon = trial.suggest_float("epsilon", 1.1, 2.0)
@@ -80,9 +80,9 @@ def hyperparameter_tuning(data, model_classes, n_trials=100):
         #     model_instance = model_class(params=params)
         
         model_instance = model_class(params=params)
-        model_fitted, scaler = m.train(data, model_instance)
-        validation_res = m.validation(data, model_fitted, scaler)
-        r_2 = calculate_r2_oos(validation_res['Y'], validation_res['prediction'])
+        model_fitted, scaler = m.train(X_train, y_train, model_instance)
+        validation_res = m.validation(X_val, y_val, model_fitted, scaler)
+        r_2 = calculate_r2_oos(validation_res['y'], validation_res['y_pred'])
         return r_2
         
 
@@ -91,7 +91,7 @@ def hyperparameter_tuning(data, model_classes, n_trials=100):
         model_name = model_class().name if hasattr(model_class(), "name") else model_class().__class__.__name__
         print(f"Tunning {model_name}")
         study = optuna.create_study(direction="maximize")
-        objective_with_args = partial(objective, data=data, model_class=model_class, model_name=model_name)
+        objective_with_args = partial(objective, X_train=X_train, y_train=y_train, X_val=X_val, y_val=y_val, model_class=model_class, model_name=model_name)
         study.optimize(objective_with_args, n_trials=n_trials)
         best_trials[model_name] = study.best_trial.params
 
@@ -99,3 +99,46 @@ def hyperparameter_tuning(data, model_classes, n_trials=100):
         print(f"Best trial for {model_name}:", params)
 
     return best_trials
+
+def reduction_in_r2(model_classes, X_train, y_train, features, permutation_importance=False):
+    # change to perform modified versio  30 times
+    importance_dict = {}
+    percentage_change_dict = {}
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_train_scaled = pd.DataFrame(X_train_scaled, columns=X_train.columns, index=X_train.index)
+
+    
+    for model_class in model_classes:
+        model_name = model_class.name if hasattr(model_class, "name") else model_class.__class__.__name__
+        model_changes = []
+        percentage_changes = []
+        
+        model_class.fit(X_train_scaled, y_train)
+        original_r2 = calculate_r2_oos(y_train.values, model_class.predict(X_train_scaled))
+
+        for variable in features:
+            X_modified = X_train_scaled.copy()
+            if permutation_importance:
+                X_modified[variable] = np.random.permutation(X_modified[variable].values)
+            else:
+                X_modified[variable] = 0
+            
+
+            model_class.fit(X_modified, y_train)
+            modified_r2 = calculate_r2_oos(y_train.values, model_class.predict(X_modified))
+            
+            reduction = original_r2 - modified_r2
+            percentage_change = reduction/original_r2 * 100
+
+            model_changes.append(reduction)
+            percentage_changes.append(percentage_change)
+        
+        importance_dict[model_name] = model_changes
+        percentage_change_dict[model_name] = percentage_changes
+
+    percentage_change_df = pd.DataFrame(percentage_change_dict, index=features)
+    importance_df = pd.DataFrame(importance_dict, index=features)
+    return importance_df, percentage_change_df
+
+

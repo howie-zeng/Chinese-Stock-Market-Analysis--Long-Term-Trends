@@ -9,6 +9,7 @@ import pandas as pd
 from pytorch_forecasting import TimeSeriesDataSet, GroupNormalizer, Baseline
 from sklearn.base import clone
 from sklearn.preprocessing import StandardScaler
+import numpy as np
 import copy
 import optuna 
 
@@ -122,12 +123,16 @@ class NNModel(BaseModel):
         X_preprocessed = pd.concat([X, X_mask], axis=1)
         return X_preprocessed
 
-    def fit(self, X, Y, num_epochs=5, batch_size=32):
+    def fit(self, X, y, num_epochs=5, batch_size=32):
         # X = self.preprocess_nas(X)
-        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
-        Y_tensor = torch.tensor(Y, dtype=torch.float32).to(self.device)
+        if isinstance(X, pd.DataFrame):
+            X_numpy = X.values.astype(np.float32)
+        else:
+            X_numpy = X.astype(np.float32)
+        X_tensor = torch.tensor(X_numpy, dtype=torch.float32).to(self.device)
+        y_tensor = torch.tensor(y, dtype=torch.float32).to(self.device)
 
-        dataset = torch.utils.data.TensorDataset(X_tensor, Y_tensor)
+        dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
         
         for epoch in range(num_epochs):
@@ -145,94 +150,54 @@ class NNModel(BaseModel):
     
     def predict(self, X):
         # X = self.preprocess_nas(X)
-        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
+        if isinstance(X, pd.DataFrame):
+            X_numpy = X.values.astype(np.float32)
+        else:
+            X_numpy = X.astype(np.float32)
+        X_tensor = torch.tensor(X_numpy, dtype=torch.float32).to(self.device)
         self.model.eval()
         with torch.no_grad():
             predictions = self.model(X_tensor)
         return predictions.cpu().numpy()
-
-        
-
-def split_train_val(data_input:pd.DataFrame,
-                    target_col:str='alpha', time_col:str='days_from_start',
-                    group_cols:list=['Ticker', 'sector'],\
-                    
-                    time_varying_known_reals:list=["date", 'days_from_start',],
-                                                #    'day_of_month', 'day_of_week',
-                                                #    'month'],
-                    min_prediction_length:int=p.offset, 
-                    max_prediction_length:int=p.offset,
-                    min_encoder_length:int=p.offset//2,
-                    max_encoder_length:int = p.history_length,
-                    batch_size:int=64):
-    '''
-    Initialize the training and validation sets.
-    All the parameters are set in the daily_parameters.py file.
-    Only one day is used as the validation set.
-    NOTE: the target, the group columns, and the time varying known reals are hard coded here.
-    '''
-    # split the data into training and validation sets
-    # max_encoder_length = data_input[time_col].nunique()
-    training_cutoff = data_input[time_col].max() - 1
-
-    cols_to_remove = [target_col] + group_cols + [time_varying_known_reals]
-    variable_list = [col for col in data_input.columns if col not in cols_to_remove]
-
-    training = TimeSeriesDataSet(
-        data_input[lambda x: x[time_col] <= training_cutoff], # type: ignore
-        time_idx=time_col,
-        target=target_col,
-        group_ids=[group_cols[0]],
-        min_encoder_length=min_encoder_length,
-        max_encoder_length=max_encoder_length,
-        min_prediction_length=min_prediction_length,
-        max_prediction_length=max_prediction_length,
-        static_categoricals=group_cols,
-        time_varying_known_reals=time_varying_known_reals[:2], # REVIEW: change back to full list 
-        time_varying_unknown_reals=[target_col] + variable_list,
-        lags={target_col:[1, 5, 25, 50, 75, 252]},
-        add_relative_time_idx=True,
-        add_target_scales=True,
-        add_encoder_length=True,
-        allow_missing_timesteps=True
-    )
-
-    validation = TimeSeriesDataSet.from_dataset(training, data_input, predict=True, stop_randomization=True)
-
-    train_dataloader = training.to_dataloader(train=True, batch_size=batch_size, num_workers=-1)
-    val_dataloader = validation.to_dataloader(train=False, batch_size=batch_size*10, num_workers=-1)
-
-    return training, validation, train_dataloader, val_dataloader
-
-def train(data: pd.DataFrame, model, start = p.training_sample[0], end = p.training_sample[1]):
+      
+def split_train_val_test(data: pd.DataFrame, stockID="Ticker", predictor="adjClose", colsToDrop = ['sector']):
     if not isinstance(data.index, pd.DatetimeIndex):
         data.index = pd.to_datetime(data.index)
-    data_training = data.loc[(data.index >= start) & (data.index <= end)]
-    data_training = data_training.sort_index()
+    data['y'] = data['adjClose'].pct_change().shift(-1)
+    for col in [stockID] + colsToDrop:
+        if col in data.columns:
+            data.drop(col, axis=1, inplace=True)
+    data = data.dropna(subset=['y'])
+    training_start, training_end = pd.to_datetime(p.training_sample)
+    validation_start, validation_end = pd.to_datetime(p.validation_sample)
+    testing_start, testing_end = pd.to_datetime(p.testing_sample)
 
-    X = data_training.drop(['alpha', 'Ticker', 'sector'],axis=1)
-    Y = data_training['alpha']
+    training_set = data[(data.index >= training_start) & (data.index <= training_end)]
+    validation_set = data[(data.index >= validation_start) & (data.index <= validation_end)]
+    testing_set = data[(data.index >= testing_start) & (data.index <= testing_end)]
 
+    X_train, y_train = training_set.drop(columns=['y']), training_set['y']
+    X_val, y_val = validation_set.drop(columns=['y']), validation_set['y']
+    X_test, y_test = testing_set.drop(columns=['y']), testing_set['y']
+
+    return X_train, y_train, X_val, y_val, X_test, y_test
+
+def train(X, y, model):
     scaler = StandardScaler()
     X = scaler.fit_transform(X)
 
-    model.fit(X, Y)
+    model.fit(X, y)
     return model, scaler
 
-def validation(data: pd.DataFrame, model_fitted, scaler, start = p.validation_sample[0], end = p.validation_sample[1], tuning = False):
-    if not isinstance(data.index, pd.DatetimeIndex):
-        data.index = pd.to_datetime(data.index)
-    data_validation = data.loc[(data.index >= start) & (data.index <= end)]
-    data_validation = data_validation.sort_index()
-    X = data_validation.drop(['alpha', 'Ticker', 'sector'],axis=1)
-    Y = data_validation['alpha']
+def validation(X, y, model_fitted, scaler):
     X = scaler.transform(X)
     predictions = model_fitted.predict(X)
     results_df = pd.DataFrame()
-    results_df['Y'] = Y
-    results_df['prediction'] = predictions
-    results_df['Ticker'] = data_validation['Ticker']
+    results_df['y'] = y
+    results_df['y_pred'] = predictions
     return results_df
+
+
 
 
 

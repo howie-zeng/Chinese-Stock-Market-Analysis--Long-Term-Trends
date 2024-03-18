@@ -1,7 +1,5 @@
-change bfill to forward
-
-random forest does not work with nas
-
-export nas to excel and send in slack
+change bfill to ffill
 
 feature engeering after model
+
+ask
