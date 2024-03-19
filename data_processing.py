@@ -2,9 +2,37 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.feature_selection import SelectFromModel
+import os
+from tqdm import tqdm
 
 
 offset = 252
+import os
+import pandas as pd
+from tqdm import tqdm
+import datetime
+
+# need volumn traded
+def read_daily_data(files, dataPath = os.getcwd() + "\\data"):
+    merged_df = None
+    for file in tqdm(files, desc="Reading files"):
+        try:
+            file_name = os.path.splitext(file)[0]
+            file_path = os.path.join(dataPath, file)
+            df_temp = pd.read_csv(file_path)
+            df_temp.rename(columns={df_temp.columns[0]: 'date'}, inplace=True)
+            df_temp['date'] = pd.to_datetime(df_temp['date'], format="%Y%m%d", errors='ignore')
+            if df_temp['date'].dtype != 'datetime64[ns]':
+                df_temp['date'] = pd.to_datetime(df_temp['date'], errors='ignore')
+            df_temp = df_temp.melt(id_vars=['date'], var_name="Ticker", value_name=file_name)
+            if merged_df is None:
+                merged_df = df_temp
+            else:
+                merged_df = pd.merge(merged_df, df_temp, on = ["date", "Ticker"], how="left")
+        except Exception as e:
+            print(f"Error processing file {file}: {e}")
+            continue
+    return merged_df
 
 def data_loading(data):
     data.drop(data.index[:offset], inplace=True)
