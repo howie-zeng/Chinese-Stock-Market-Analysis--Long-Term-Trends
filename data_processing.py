@@ -12,7 +12,7 @@ import datetime
 import parameters as p
 
 # need volumn traded
-def read_daily_data(files, dataPath = os.getcwd() + "\\data"):
+def read_data(files, dataPath = os.getcwd() + "\\data", fill_method="ffill"):
     merged_df = None
     for file in tqdm(files, desc="Reading files"):
         try:
@@ -30,11 +30,31 @@ def read_daily_data(files, dataPath = os.getcwd() + "\\data"):
                 merged_df = pd.merge(merged_df, df_temp, on = ["date", "Ticker"], how="left")
         except Exception as e:
             print(f"Error processing file {file}: {e}")
-            continue
+            break
+    # merged_df.set_index('date', inplace=True)
+    # merged_df = merged_df.groupby('Ticker', group_keys=False).apply(lambda x: x.fillna(method=fill_method))
     return merged_df
 
-def read_monthly_data(files, data, dataPath = os.getcwd() + "\\data"):
-    merged_df = None
+def add_monthly_data(files, data, dataPath = os.getcwd() + "\\data", fill_methods=("ffill")):
+    merged_df = data
+    for file in tqdm(files, desc="reading files"):
+        try:
+            file_name = os.path.splitext(file)[0]
+            file_path = os.path.join(dataPath, file)
+            df_temp = pd.read_csv(file_path)
+            df_temp.rename(columns={df_temp.columns[0]: 'date'}, inplace=True)
+            df_temp['date'] = pd.to_datetime(df_temp['date'], format="%y%m%d", errors="ignore")
+            if df_temp['date'].dtype != 'datetime64[ns]':
+                df_temp['date'] = pd.to_datetime(df_temp['date'], errors='ignore')
+            df_temp = df_temp.melt(id_vars=['date'], var_name="Ticker", value_name=file_name)
+            merged_df = pd.merge(merged_df, df_temp, on = ['date', "Ticker"], how = "left")
+        except:
+            print(f"Error processing file {file}: {e}")
+            break
+    for method in fill_methods:
+        merged_df = merged_df.groupby('Ticker', group_keys=False).apply(lambda x: x.fillna(method=method))
+    return merged_df
+
 
 def data_loading(data):
     data.drop(data.index[:p.offset], inplace=True)
@@ -80,7 +100,7 @@ def data_preprocessing(data_fs):
     data_fs = data_fs.reset_index(drop=True)
     return data_fs
 
-def fillnas_and_convert(data, stockID="Ticker", dataOffset='W', fill_methods=("ffill", "bfill"), missing_threshold=0.6):
+def fillnas_and_convert(data, stockID="Ticker", dataOffset='M', fill_methods=("ffill"), missing_threshold=0.6):
     if not isinstance(data.index, pd.DatetimeIndex):
         data.index = pd.to_datetime(data.index)
     for method in fill_methods:
