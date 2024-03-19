@@ -33,6 +33,9 @@ def read_daily_data(files, dataPath = os.getcwd() + "\\data"):
             continue
     return merged_df
 
+def read_monthly_data(files, data, dataPath = os.getcwd() + "\\data"):
+    merged_df = None
+
 def data_loading(data):
     data.drop(data.index[:p.offset], inplace=True)
     data.index = pd.to_datetime(data.index)
