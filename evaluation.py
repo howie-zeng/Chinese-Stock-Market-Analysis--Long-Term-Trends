@@ -124,11 +124,10 @@ def reduction_in_r2(model_classes, X_train, y_train, features, permutation_impor
             else:
                 X_modified[variable] = 0
             
-
             model_class.fit(X_modified, y_train)
             modified_r2 = calculate_r2_oos(y_train.values, model_class.predict(X_modified))
             
-            reduction = original_r2 - modified_r2
+            reduction = original_r2 - modified_r2 
             percentage_change = reduction/original_r2 * 100
 
             model_changes.append(reduction)

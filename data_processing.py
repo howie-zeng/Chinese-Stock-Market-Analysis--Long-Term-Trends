@@ -5,12 +5,11 @@ from sklearn.feature_selection import SelectFromModel
 import os
 from tqdm import tqdm
 
-
-offset = 252
 import os
 import pandas as pd
 from tqdm import tqdm
 import datetime
+import parameters as p
 
 # need volumn traded
 def read_daily_data(files, dataPath = os.getcwd() + "\\data"):
@@ -35,7 +34,7 @@ def read_daily_data(files, dataPath = os.getcwd() + "\\data"):
     return merged_df
 
 def data_loading(data):
-    data.drop(data.index[:offset], inplace=True)
+    data.drop(data.index[:p.offset], inplace=True)
     data.index = pd.to_datetime(data.index)
     data['sector'] = data['sector'].fillna("None")
     data['alpha'] = data['alpha'].fillna(method='bfill')
