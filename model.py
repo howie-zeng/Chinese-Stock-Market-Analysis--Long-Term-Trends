@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import pandas as pd
-from pytorch_forecasting import TimeSeriesDataSet, GroupNormalizer, Baseline
 from sklearn.base import clone
 from sklearn.preprocessing import StandardScaler
 import numpy as np
@@ -166,11 +165,11 @@ class NNModel(BaseModel):
             predictions = self.model(X_tensor)
         return predictions.cpu().numpy()
       
-def split_train_val_test(data: pd.DataFrame, stockID="Ticker", predictor="adjClose", colsToDrop = ['sector']):
+def split_train_val_test(data: pd.DataFrame, predictor="adjClose", colsToDrop = []):
     if not isinstance(data.index, pd.DatetimeIndex):
         data.index = pd.to_datetime(data.index)
-    data['y'] = data['adjClose'].pct_change().shift(-1)
-    for col in [stockID] + colsToDrop:
+    data['y'] = data['return_monthly'].shift()
+    for col in [p.stockID] + colsToDrop:
         if col in data.columns:
             data.drop(col, axis=1, inplace=True)
     data = data.dropna(subset=['y'])

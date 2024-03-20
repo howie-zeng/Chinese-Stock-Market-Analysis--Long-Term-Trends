@@ -100,7 +100,7 @@ def hyperparameter_tuning(X_train, y_train, X_val, y_val, model_classes, n_trial
 
     return best_trials
 
-def reduction_in_r2(model_classes, X_train, y_train, features, permutation_importance=False):
+def feathre_importance(model_classes, X_train, y_train, features, permutation_importance=False):
     # change to perform modified versio  30 times
     importance_dict = {}
     percentage_change_dict = {}
