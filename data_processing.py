@@ -10,18 +10,14 @@ import datetime
 import parameters as p
 
 # need volumn traded
-def read_data(files, dataPath = p.dataPath, fill_method="ffill"):
+def read_data(files, fill_method="ffill"):
     merged_df = None
     for file in tqdm(files, desc="Reading files"):
         try:
             file_name = os.path.splitext(file)[0]
-            file_path = os.path.join(dataPath, file)
-            df_temp = pd.read_csv(file_path)
-            df_temp.rename(columns={df_temp.columns[0]: 'date'}, inplace=True)
-            try:
-                df_temp['date'] = pd.to_datetime(df_temp['date'], format="%Y%m%d")
-            except ValueError:
-                df_temp['date'] = pd.to_datetime(df_temp['date'], errors='coerce')
+            file_path = os.path.join(p.dataPath, file)
+            df_temp = pd.read_csv(file_path, index_col=False, parse_dates=[0])
+            df_temp = df_temp.rename(columns={df_temp.columns[0]: 'date'})
             df_temp = df_temp.melt(id_vars=['date'], var_name=p.stockID, value_name=file_name)
             if merged_df is None:
                 merged_df = df_temp
@@ -39,28 +35,55 @@ def read_data(files, dataPath = p.dataPath, fill_method="ffill"):
         merged_df.to_csv(data_path, index=True) 
     return merged_df
 
-def data_loading(daily_files, monthly_files):
+def get_sector_data(data):
+
+    df_sector = pd.read_csv(os.path.join(p.dataPath, '000905.csv'), index_col=False, parse_dates=[0])
+    df_sector = df_sector.rename(columns={df_sector.columns[0]: 'date', df_sector.columns[1]: '000905_close'})
+
+    df_temp = pd.read_csv(os.path.join(p.dataPath, '000905_return_daily.csv'), index_col=False, parse_dates=[0])
+    df_temp = df_temp.rename(columns={df_temp.columns[0]: 'date', df_temp.columns[1]: '000905_return_daily'})
+
+    df_sector = pd.merge(df_sector, df_temp, on='date', how='left')
+
+    df_temp = pd.read_csv(os.path.join(p.dataPath, '000905_return_monthly.csv'), index_col=False, parse_dates=[0])
+    df_temp = df_temp.rename(columns={df_temp.columns[0]: 'date', df_temp.columns[1]: '000905_return_monthly'})
+    df_temp['month'] = df_temp['date'].dt.to_period('m')
+    df_sector['month'] = df_sector['date'].dt.to_period('m')
+
+    df_sector =pd.merge(df_sector, df_temp[['month', '000905_return_monthly']], on='month', how='left')
+    df_sector.drop('month', inplace=True, axis=1)
+
+    data = pd.merge(data, df_sector, on='date', how='left')
+    return data
+
+
+def data_loading(daily_files, monthly_files, daily_file_path=p.merged_data_daily, monthly_file_path=p.merged_data_monthly):
     dtype = {p.stockID: str}
-    index_col = 'date'
-    
-    if os.path.exists(p.merged_data_daily):
+    # index_col = 'date'
+    if os.path.exists(daily_file_path):
         print('Loading daily data from existing file.')
-        merged_data_daily = pd.read_csv(p.merged_data_daily, index_col=index_col, dtype=dtype, parse_dates=True)
+        merged_data_daily = pd.read_csv(p.merged_data_daily, index_col=False, dtype=dtype, parse_dates=[0])
     else:
         print('Daily data file not found. Processing daily files...')
         merged_data_daily = read_data(daily_files)
-
-    if os.path.exists(p.merged_data_monthly):
+    if os.path.exists(monthly_file_path):
         print('Loading monthly data from existing file.')
-        merged_data_monthly = pd.read_csv(p.merged_data_monthly, index_col=index_col, dtype=dtype, parse_dates=True)
+        merged_data_monthly = pd.read_csv(p.merged_data_monthly, index_col=False, dtype=dtype, parse_dates=[0])
     else:
         print('Monthly data file not found. Processing monthly files...')
         merged_data_monthly = read_data(monthly_files)
 
     return merged_data_daily, merged_data_monthly
 
+def check_datetime(input):
+    if not isinstance(input, pd.DatetimeIndex):
+        input = pd.to_datetime(input)
+    return input
+
 
 def merge_daily_and_monthly_data(merged_data_daily, merged_data_monthly):
+    merged_data_daily.index = check_datetime(merged_data_daily.index)
+    merged_data_monthly.index = check_datetime(merged_data_monthly.index)
     merged_data_daily = merged_data_daily.groupby(p.stockID).resample("M").last().reset_index(level=0, drop=True)
     data_monthly = pd.merge(merged_data_daily, merged_data_monthly, on=['date', p.stockID], how='left')
     data_monthly = data_monthly.sort_index()
@@ -78,7 +101,7 @@ def handle_crosssectional_na(data, column_missing_threshold=0.6):
     fillna_columns = [col for col in data.columns if col not in columns_to_exclude]
 
     row_missing_percentage = data[fillna_columns].isna().mean(axis=1)
-    row_missing_threshold = row_missing_percentage[row_missing_percentage != 0].mean() + 1.65 * 2 * row_missing_percentage[row_missing_percentage != 0].std()
+    row_missing_threshold = row_missing_percentage[row_missing_percentage != 0].mean() + 1.96 * 2 * row_missing_percentage[row_missing_percentage != 0].std()
     data_filtered = data.loc[row_missing_percentage <= row_missing_threshold]
     num_dropped_rows = (row_missing_percentage > row_missing_threshold).sum()
     print(f"Dropped {num_dropped_rows} rows with more than {row_missing_threshold*100}% missing values.")
