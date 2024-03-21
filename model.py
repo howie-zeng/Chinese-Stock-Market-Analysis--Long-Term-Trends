@@ -164,18 +164,33 @@ class NNModel(BaseModel):
         with torch.no_grad():
             predictions = self.model(X_tensor)
         return predictions.cpu().numpy()
+    
+def split_dates(data_index):
+    if not isinstance(data_index, pd.DatetimeIndex):
+        data_index = pd.to_datetime(data_index)
+    data_index = data_index.sort_values()
+    total_size = len(data_index)
+    train_size = int(total_size * 0.6)
+    val_test_size = (total_size - train_size) // 2
+
+    train_dates = [data_index[0].strftime('%Y-%m-%d'), data_index[train_size - 1].strftime('%Y-%m-%d')]
+    val_dates = [data_index[train_size].strftime('%Y-%m-%d'), data_index[train_size + val_test_size - 1].strftime('%Y-%m-%d')]
+    test_dates = [data_index[train_size + val_test_size].strftime('%Y-%m-%d'), data_index[-1].strftime('%Y-%m-%d')]
+
+    return train_dates, val_dates, test_dates
       
-def split_train_val_test(data: pd.DataFrame, predictor="adjClose", colsToDrop = []):
+def split_train_val_test(data, y="return_monthly", colsToDrop = []):
     if not isinstance(data.index, pd.DatetimeIndex):
         data.index = pd.to_datetime(data.index)
-    data['y'] = data['return_monthly'].shift()
+    data['y'] = data[y].shift()
     for col in [p.stockID] + colsToDrop:
         if col in data.columns:
             data.drop(col, axis=1, inplace=True)
     data = data.dropna(subset=['y'])
-    training_start, training_end = pd.to_datetime(p.training_sample)
-    validation_start, validation_end = pd.to_datetime(p.validation_sample)
-    testing_start, testing_end = pd.to_datetime(p.testing_sample)
+    training_sample, validation_sample, testing_sample = split_dates(data.index)
+    training_start, training_end = pd.to_datetime(training_sample)
+    validation_start, validation_end = pd.to_datetime(validation_sample)
+    testing_start, testing_end = pd.to_datetime(testing_sample)
 
     training_set = data[(data.index >= training_start) & (data.index <= training_end)]
     validation_set = data[(data.index >= validation_start) & (data.index <= validation_end)]
@@ -188,11 +203,15 @@ def split_train_val_test(data: pd.DataFrame, predictor="adjClose", colsToDrop = 
     return X_train, y_train, X_val, y_val, X_test, y_test
 
 def train(X, y, model):
+    if model.name == "OLS3Model":
+        X = X[p.ols3_predictors]
     scaler = StandardScaler()
     model.fit(scaler.fit_transform(X), y)
     return model, scaler
 
 def validation(X, model_fitted, scaler):
+    if model_fitted.name == "OLS3Model":
+        X = X[p.ols3_predictors] 
     predictions = model_fitted.predict(scaler.transform(X))
     return predictions
 
