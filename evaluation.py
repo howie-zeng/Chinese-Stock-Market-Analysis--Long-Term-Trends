@@ -109,7 +109,7 @@ def feathre_importance(model_classes, X_train, y_train, features, permutation_im
     X_train_scaled = pd.DataFrame(X_train_scaled, columns=X_train.columns, index=X_train.index)
 
     
-    for model_class in model_classes:
+    for model_class in tqdm(model_classes, desc="Calculating Feature Importance"):
         model_name = model_class.name if hasattr(model_class, "name") else model_class.__class__.__name__
         model_changes = []
         percentage_changes = []
