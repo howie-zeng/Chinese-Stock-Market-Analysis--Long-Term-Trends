@@ -35,7 +35,7 @@ def read_data(files, fill_method="ffill"):
         merged_df.to_csv(data_path, index=True) 
     return merged_df
 
-def get_sector_data(data):
+def get_market_data(data):
 
     df_sector = pd.read_csv(os.path.join(p.dataPath, '000905.csv'), index_col=False, parse_dates=[0])
     df_sector = df_sector.rename(columns={df_sector.columns[0]: 'date', df_sector.columns[1]: '000905_close'})
@@ -54,6 +54,7 @@ def get_sector_data(data):
     df_sector.drop('month', inplace=True, axis=1)
 
     data = pd.merge(data, df_sector, on='date', how='left')
+    
     return data
 
 

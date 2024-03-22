@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
 import parameters as p
+import statsmodels.api as sm
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 def calculate_momentum(data_monthly):
     data_monthly.sort_index(inplace=True)
@@ -12,15 +15,57 @@ def calculate_momentum(data_monthly):
     data_monthly['mom36m'] = group.transform(lambda x: x.shift(14).rolling(window=24).sum())  
 
     return data_monthly
+def calculate_weekly_returns(df, price_col):
+    weekly_prices = df[price_col].resample('W').last()
+    weekly_returns = weekly_prices.pct_change().dropna()
+    return weekly_returns
 
-def calculate_beta(stock_returns, market_returns):
-    # need more data, the requires at least three years of data
-    raise NotImplementedError
-    stock_returns = pd.read_csv(os.path.join(p.dataPath, "return_daily.csv"), index_col=False, parse_dates=[0])
-    market_returns = pd.read_csv(os.path.join(p.dataPath, "000905_return_daily.csv"), index_col=False, parse_dates=[0])
-    stock_returns = stock_returns.rename(columns={stock_returns.columns[0]: 'date'})
-    market_returns = market_returns.rename(columns={market_returns.columns[0]: 'date'})
+def process_ticker_data(args):
+    ticker_data, market_col, stock_col = args
+    ticker_data.set_index('date', inplace=True)
 
+    stock_weekly_returns = calculate_weekly_returns(ticker_data, stock_col)
+    market_weekly_returns = calculate_weekly_returns(ticker_data, market_col)
+    
+    combined_weekly_returns = pd.DataFrame({
+        'stock_returns': stock_weekly_returns,
+        'market_returns': market_weekly_returns
+    }).dropna()
+    
+    results = []
+    if len(combined_weekly_returns) > 1:
+        X = sm.add_constant(combined_weekly_returns[['market_returns']])
+        y = combined_weekly_returns['stock_returns']
+        
+        for i in range(52, len(y)):
+            y_temp = y.iloc[max(i-156, 0):i]
+            X_temp = X.iloc[max(i-156, 0):i]
+            model = sm.OLS(y_temp, X_temp).fit()
+            
+            result = {
+                'date': y_temp.index[-1],
+                'alpha': model.params[0],
+                'beta': model.params[1]
+            }
+            results.append(result)
+    return results
+
+def calculate_stock_level_alpha_and_beta(data, market_col='000905_close', stock_col='close_adj', p_stockID='Ticker'):
+    if 'date' not in data.columns:
+        raise ValueError("Data should have 'date'.")
+    ticker_groups = data.groupby(p_stockID)
+    process_args = [(group.copy(), market_col, stock_col) for name, group in ticker_groups]
+    
+    results = []
+    with ProcessPoolExecutor() as executor:
+        futures = [executor.submit(process_ticker_data, arg) for arg in process_args]
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Calculating alpha and beta"):
+            result = future.result()
+            results.extend(result)
+    results_df = pd.DataFrame(results)
+    merged_data = pd.merge_asof(data.sort_values('date'), results_df.sort_values('date'), on='date', by=p_stockID, tolerance=pd.Timedelta(days=5), direction='backward')
+    return merged_data
+        
 def feature_construction(data_daily, data_monthly): 
     # daily
     data_daily['month'] = data_daily['date'].dt.to_period('m')
