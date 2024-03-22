@@ -131,6 +131,10 @@ def filter_by_market_capitalization(data, threshold = 0.3, variable_name = 'curr
     
     return top_70, bottom_30
 
+def save_preprocessed_data(data, name, data_path=p.cleanedDataPath):
+    data.to_csv(os.path.join(data_path, f"{name}.csv"), index=True) 
+    print(f"File {name} saved.")
+
 
 
 

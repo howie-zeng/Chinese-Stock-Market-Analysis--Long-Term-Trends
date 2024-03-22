@@ -21,7 +21,7 @@ def calculate_weekly_returns(df, price_col):
     return weekly_returns
 
 def process_ticker_data(args):
-    ticker_data, market_col, stock_col = args
+    ticker_data, market_col, stock_col, name = args
     ticker_data.set_index('date', inplace=True)
 
     stock_weekly_returns = calculate_weekly_returns(ticker_data, stock_col)
@@ -45,16 +45,17 @@ def process_ticker_data(args):
             result = {
                 'date': y_temp.index[-1],
                 'alpha': model.params[0],
-                'beta': model.params[1]
+                'beta': model.params[1],
+                p.stockID: name
             }
             results.append(result)
     return results
 
-def calculate_stock_level_alpha_and_beta(data, market_col='000905_close', stock_col='close_adj', p_stockID='Ticker'):
+def calculate_stock_level_alpha_and_beta(data, market_col='000905_close', stock_col='close_adj'):
     if 'date' not in data.columns:
         raise ValueError("Data should have 'date'.")
-    ticker_groups = data.groupby(p_stockID)
-    process_args = [(group.copy(), market_col, stock_col) for name, group in ticker_groups]
+    ticker_groups = data.groupby(p.stockID)
+    process_args = [(group.copy(), market_col, stock_col, name) for name, group in ticker_groups]
     
     results = []
     with ProcessPoolExecutor() as executor:
@@ -63,7 +64,7 @@ def calculate_stock_level_alpha_and_beta(data, market_col='000905_close', stock_
             result = future.result()
             results.extend(result)
     results_df = pd.DataFrame(results)
-    merged_data = pd.merge_asof(data.sort_values('date'), results_df.sort_values('date'), on='date', by=p_stockID, tolerance=pd.Timedelta(days=5), direction='backward')
+    merged_data = pd.merge_asof(data, results_df.sort_values('date'), on='date', by=p.stockID, tolerance=pd.Timedelta(days=5), direction='backward')
     return merged_data
         
 def feature_construction(data_daily, data_monthly): 
