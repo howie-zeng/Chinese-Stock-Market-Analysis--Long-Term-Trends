@@ -10,7 +10,7 @@ import datetime
 import parameters as p
 
 # need volumn traded
-def read_data(files, fill_method="ffill"):
+def read_data(files):
     merged_df = None
     for file in tqdm(files, desc="Reading files"):
         try:
@@ -31,7 +31,7 @@ def read_data(files, fill_method="ffill"):
         data_path = p.merged_data_daily if "return_daily" in merged_df.columns else p.merged_data_monthly
         merged_df = merged_df.dropna(subset=[column_name])
         merged_df.set_index('date', inplace=True)
-        merged_df = merged_df.groupby(p.stockID, group_keys=False).apply(lambda x: x.fillna(method=fill_method))
+        merged_df = merged_df.groupby(p.stockID, group_keys=False).apply(lambda x: x.ffill())
         merged_df.to_csv(data_path, index=True) 
     return merged_df
 

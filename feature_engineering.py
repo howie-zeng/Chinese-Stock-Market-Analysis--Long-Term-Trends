@@ -38,8 +38,8 @@ def process_ticker_data(args):
         y = combined_weekly_returns['stock_returns']
         
         for i in range(52, len(y)):
-            y_temp = y.iloc[max(i-156, 0):i]
-            X_temp = X.iloc[max(i-156, 0):i]
+            y_temp = y.iloc[max(i-156, 0):i-1]
+            X_temp = X.iloc[max(i-156, 0):i-1]
             model = sm.OLS(y_temp, X_temp).fit()
             
             result = {
