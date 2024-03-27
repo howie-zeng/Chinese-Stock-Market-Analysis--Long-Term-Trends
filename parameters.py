@@ -11,6 +11,7 @@ stockID='Ticker'
 
 currentPath = os.getcwd()
 dataPath = currentPath + "\\data"
+econDataPath = dataPath + "\\econ"
 cleanedDataPath = dataPath + "\\cleaned"
 merged_data_daily = os.path.join(cleanedDataPath, "merged_data_daily.csv")
 merged_data_monthly = os.path.join(cleanedDataPath, "merged_data_monthly.csv")

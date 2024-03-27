@@ -38,7 +38,7 @@ def nn_tunning(num_layers_range, X_train, y_train, X_val, y_val, n_trials=100):
     best_trials = {}   
     for num_layers in tqdm(num_layers_range, desc="Tuning Models"):
         model_name = f'NNModel_nn{num_layers}'
-        print(f"Tunning NN{num_layers}")
+        print(f"Tunning {num_layers}")
         study = optuna.create_study(direction="maximize")
         objective_with_args = partial(objective, X_train=X_train, y_train=y_train, X_val=X_val, y_val=y_val, num_layers=num_layers)
         study.optimize(objective_with_args, n_trials=n_trials, n_jobs=-1)
@@ -162,7 +162,6 @@ def feature_importance(model_classes, X_train, y_train, X_val, y_val, features, 
                 X_modified[variable] = np.random.permutation(X_modified[variable])
             else:
                 X_modified[variable] = 0
-
             modified_r2 = calculate_r2_oos(y_train, model_class.predict(X_modified))
             reduction = original_r2 - modified_r2
             model_changes.append(reduction)

@@ -4,15 +4,17 @@ import parameters as p
 import statsmodels.api as sm
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 def calculate_momentum(data_monthly):
     data_monthly.sort_index(inplace=True)
     group = data_monthly.groupby(p.stockID)['return_monthly']
 
     data_monthly['mom1m'] = group.transform(lambda x: x.shift(1) ) 
-    data_monthly['mom12m'] = group.transform(lambda x: x.shift(2).rolling(window=11).sum()) 
-    data_monthly['mom6m'] = group.transform(lambda x: x.shift(2).rolling(window=5).sum())  
-    data_monthly['mom36m'] = group.transform(lambda x: x.shift(14).rolling(window=24).sum())  
+    data_monthly['mom12m'] = group.transform(lambda x: x.shift(1).rolling(window=12).sum())
+    data_monthly['mom6m'] = group.transform(lambda x: x.shift(1).rolling(window=6).sum())
+    data_monthly['mom24m'] = group.transform(lambda x: x.shift(1).rolling(window=24).sum()) 
+    data_monthly['mom36m'] = group.transform(lambda x: x.shift(1).rolling(window=36).sum()) 
 
     return data_monthly
 def calculate_weekly_returns(df, price_col):
@@ -30,16 +32,18 @@ def process_ticker_data(args):
     combined_weekly_returns = pd.DataFrame({
         'stock_returns': stock_weekly_returns,
         'market_returns': market_weekly_returns
-    }).dropna()
+    })
+
+    combined_weekly_returns.dropna(inplace=True)
     
     results = []
-    if len(combined_weekly_returns) > 1:
+    if len(combined_weekly_returns) >= 52:
         X = sm.add_constant(combined_weekly_returns[['market_returns']])
         y = combined_weekly_returns['stock_returns']
         
         for i in range(52, len(y)):
-            y_temp = y.iloc[max(i-156, 0):i-1]
-            X_temp = X.iloc[max(i-156, 0):i-1]
+            y_temp = y.iloc[max(i-156, 0):i]
+            X_temp = X.iloc[max(i-156, 0):i]
             model = sm.OLS(y_temp, X_temp).fit()
             
             result = {
@@ -65,25 +69,120 @@ def calculate_stock_level_alpha_and_beta(data, market_col='000905_close', stock_
             results.extend(result)
     results_df = pd.DataFrame(results)
     merged_data = pd.merge_asof(data, results_df.sort_values('date'), on='date', by=p.stockID, tolerance=pd.Timedelta(days=5), direction='backward')
+    merged_data['betasq'] = merged_data['beta']**2
     return merged_data
-        
+
+def calculate_smas(data, windows=[5, 10, 20, 50, 100, 200], close="close_adj"):
+    for window in windows:
+        data[f'SMA_{window}'] = data[close].rolling(window=window, min_periods=1).mean()
+    return data
+
+def calculate_macd(data, close='close_adj', fast_period=12, slow_period=26, signal_period=9):
+    data['EMA_fast'] = data[close].ewm(span=fast_period, adjust=False).mean()
+    data['EMA_slow'] = data[close].ewm(span=slow_period, adjust=False).mean()
+    data['MACD'] = data['EMA_fast'] - data['EMA_slow']
+    data['MACD_Signal'] = data['MACD'].ewm(span=signal_period, adjust=False).mean()
+    return data.drop(['EMA_fast', 'EMA_slow'], axis=1)
+
+def calculate_bollinger_bands(data, close='close_adj', window=20, num_of_std=2):
+    data['SMA'] = data[close].rolling(window=window, min_periods=1).mean()
+    data['STD'] = data[close].rolling(window=window, min_periods=1).std()
+    data['Upper_Band'] = data['SMA'] + (data['STD'] * num_of_std)
+    data['Lower_Band'] = np.max(data['SMA'] - (data['STD'] * num_of_std), 0)
+    return data.drop(['STD'], axis=1)
+
+def calculate_rsi(data, close='close_adj', period=14):
+    delta = data[close].diff(1)
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+
+    rs = gain / loss
+    data['RSI'] = 100 - (100 / (1 + rs))
+    return data
+
+def calculate_roc(data, close='close_adj', period=10):
+    data['ROC'] = ((data[close] - data[close].shift(period)) / data[close].shift(period)) * 100
+    return data
+
+def calculate_historical_volatility(data, return_col='return_daily', windows=[252, 120, 60]):
+    for window in windows:
+        daily_vol = data[return_col].rolling(window=window).std()
+        data[f"volatility_{window}"] = daily_vol * np.sqrt(252)  # annualizing
+    return data
+
+def calculate_technical_indicators(data_daily):
+    functions = [calculate_macd, calculate_bollinger_bands, calculate_rsi, 
+                 calculate_roc, calculate_historical_volatility, calculate_smas
+                ]
+    for f in functions:
+        data_daily = f(data_daily)
+    return data_daily
+
+def process_stock_daily_data(stock_data):
+    stock_data['date'] = pd.to_datetime(stock_data['date'])
+    stock_data.set_index('date', inplace=True)
+    result = calculate_technical_indicators(stock_data)
+    result.reset_index(inplace=True)
+    return result
+
 def feature_construction(data_daily, data_monthly): 
     # daily
+    print('Calculating Daily Features')
     data_daily['month'] = data_daily['date'].dt.to_period('m')
-    maxret = data_daily.groupby([p.stockID, 'month'])['return_daily'].max().reset_index()
-    maxret = maxret.rename(columns={'return_daily': 'maxret'})
-    data_daily = pd.merge(data_daily, maxret, left_on=[p.stockID, 'month'], right_on=[p.stockID, 'month'], how='left')
+    maxret = data_daily.groupby([p.stockID, 'month'])['return_daily'].max().reset_index().rename(columns={'return_daily': 'maxret'})
+    data_daily = pd.merge(data_daily, maxret, on=[p.stockID, 'month'], how='left')
 
+    # indicators
+    print('Calculating Technical Indicators')
+    grouped_daily = data_daily.groupby(p.stockID)
+    with ProcessPoolExecutor() as executor:
+        results = executor.map(process_stock_daily_data, [group.copy() for name, group in grouped_daily])
+    data_daily = pd.concat(results)
     # volatility = data_daily.groupby([p.stockID, 'month'])['return_daily'].std().rename(columns={'return_daily': 'volatility'})
     # data_daily = pd.merge(data_daily, volatility, left_on=[p.stockID, 'month'], right_on=[p.stockID, 'month'], how='left')
 
     # monthly
+    print('Calculating Monthly Features')
     chmom_6m = data_monthly.groupby(p.stockID)['return_monthly'].rolling(window=6).apply(lambda x: (1+x).prod() - 1, raw=True).shift(1).reset_index(level=0, drop=True)
     chmom_12m = data_monthly.groupby(p.stockID)['return_monthly'].rolling(window=6).apply(lambda x: (1+x).prod() - 1, raw=True).shift(7).reset_index(level=0, drop=True)
     data_monthly['chmom'] = chmom_6m - chmom_12m
     data_monthly = calculate_momentum(data_monthly)
 
+    data_monthly.loc[:, 'excess_return'] = data_monthly.loc[:, 'return_monthly'] - 0
+    data_monthly['y'] = data_monthly[['excess_return', p.stockID]].groupby(p.stockID).shift(-1)
+
     data_daily.drop('month', axis=1, inplace=True)
     data_daily.set_index('date', inplace=True)
     data_monthly.set_index('date', inplace=True)
     return data_daily, data_monthly
+
+def calculate_pct_from_close_adj(price, close):
+    pct = (price - close)/close
+    return pct
+
+def transform_features(data, scaler_name = "standard"):
+    if scaler_name == "standard":
+        scaler = StandardScaler()
+    elif scaler_name == "minmax":
+        scaler = MinMaxScaler()
+    else:
+        raise ValueError(f"Unsupported scaler name: {scaler_name}")
+    
+    def scale_group(group_df):
+        scaled_values = scaler.fit_transform(group_df[cols_to_transform])
+        group_df[cols_to_transform] = scaled_values
+        return group_df
+    
+    data['Upper_Band'] = calculate_pct_from_close_adj(data['Upper_Band'], data['close_adj'])
+    data['Lower_Band'] = calculate_pct_from_close_adj(data['Lower_Band'], data['close_adj'])
+
+    cols_to_transform = ['SMA',
+                         'SMA_5', 'SMA_10', 'SMA_20', 'SMA_50', 'SMA_100', 'SMA_200',
+                         '000905_close', 'close_adj'
+                        ]
+    data_scaled = data.groupby(p.stockID).apply(scale_group)
+    data_scaled.reset_index(level=0, inplace=True, drop=True)
+
+    return data_scaled
+                                                                 
+                                                                 

@@ -226,7 +226,7 @@ def split_dates(data_index):
 def split_train_val_test(data, y="excess_return", colsToDrop = []):
     if not isinstance(data.index, pd.DatetimeIndex):
         data.index = pd.to_datetime(data.index)
-    data['y'] = data[y].shift()
+    data['y'] = data[y].shift(-1)
     for col in [p.stockID] + colsToDrop:
         if col in data.columns:
             data.drop(col, axis=1, inplace=True)

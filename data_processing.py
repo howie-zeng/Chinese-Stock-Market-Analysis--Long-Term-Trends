@@ -117,9 +117,6 @@ def handle_crosssectional_na(data, column_missing_threshold=0.6):
     print("Increase in missing statistics for each column:")
     for col, change in change_in_missing_statistics.items():
         print(f"{col}: {change:.2f}%")
-
-    
-    data_filtered['beta_000905']
     return data_filtered
 
 def filter_by_market_capitalization(data, threshold = 0.3, variable_name = 'current_assets'):
@@ -131,10 +128,19 @@ def filter_by_market_capitalization(data, threshold = 0.3, variable_name = 'curr
     
     return top_70, bottom_30
 
-def save_preprocessed_data(data, name, data_path=p.cleanedDataPath):
-    data.to_csv(os.path.join(data_path, f"{name}.csv"), index=True) 
+def save_preprocessed_data(data, name, data_path=p.cleanedDataPath, index=True):
+    data.to_csv(os.path.join(data_path, f"{name}.csv"), index=index) 
     print(f"File {name} saved.")
 
+def merge_economic_data(data):
+    for f in os.listdir(p.econDataPath):
+        path = os.path.join(p.econDataPath, f)
+        df_temp = pd.read_csv(path, parse_dates=[0], index_col=0)
+        df_temp.index = df_temp.index - pd.DateOffset(days=1)
+        df_temp = df_temp.rename_axis('date')
+        data = pd.merge(data, df_temp, left_on='date', right_index=True, how='left')
+    return data
+        
 
 
 
