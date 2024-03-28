@@ -8,15 +8,16 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 def calculate_momentum(data_monthly, col_name = 'return_monthly'):
     data_monthly.sort_index(inplace=True)
-    group = data_monthly.groupby(p.stockID)[col_name]
-
-    data_monthly[f'mom1m_{col_name}'] = group.transform(lambda x: x.shift(1)) 
-    data_monthly[f'mom12m_{col_name}'] = group.transform(lambda x: x.shift(1).rolling(window=12).sum())
-    data_monthly[f'mom6m_{col_name}'] = group.transform(lambda x: x.shift(1).rolling(window=6).sum())
-    data_monthly[f'mom24m_{col_name}'] = group.transform(lambda x: x.shift(1).rolling(window=24).sum()) 
-    data_monthly[f'mom36m_{col_name}'] = group.transform(lambda x: x.shift(1).rolling(window=36).sum()) 
-
-    return data_monthly
+    def calculate_group_momentum(group):
+        shifted_returns = group[col_name].shift(1)
+        group[f'mom1m_{col_name}'] = shifted_returns
+        group[f'mom6m_{col_name}'] = shifted_returns.rolling(window=6).apply(lambda x: (1 + x).prod() - 1, raw=True)
+        group[f'mom12m_{col_name}'] = shifted_returns.rolling(window=12).apply(lambda x: (1 + x).prod() - 1, raw=True)
+        group[f'mom24m_{col_name}'] = shifted_returns.rolling(window=24, min_periods=12).apply(lambda x: (1 + x).prod() - 1)
+        group[f'mom36m_{col_name}'] = shifted_returns.rolling(window=36, min_periods=12).apply(lambda x: (1 + x).prod() - 1)
+        return group
+    data_monthly = data_monthly.groupby(p.stockID).apply(calculate_group_momentum)
+    return data_monthly.reset_index(level=0, drop=True)
 
 
 def calculate_weekly_returns(df, price_col):
@@ -90,7 +91,7 @@ def calculate_bollinger_bands(data, close='close_adj', window=20, num_of_std=2):
     data['SMA'] = data[close].rolling(window=window, min_periods=1).mean()
     data['STD'] = data[close].rolling(window=window, min_periods=1).std()
     data['Upper_Band'] = data['SMA'] + (data['STD'] * num_of_std)
-    data['Lower_Band'] = np.max(data['SMA'] - (data['STD'] * num_of_std), 0)
+    data['Lower_Band'] = data['SMA'] - (data['STD'] * num_of_std)
     return data.drop(['STD'], axis=1)
 
 def calculate_rsi(data, close='close_adj', period=14):
@@ -127,6 +128,12 @@ def process_stock_daily_data(stock_data):
     result.reset_index(inplace=True)
     return result
 
+def calculate_ema(data, column='zero_trade_days', spans=[6, 12, 24, 36]):
+    for span in spans:
+        ema_col_name = f'{column}_EMA_{span}'
+        data[ema_col_name] = data.groupby(p.stockID)[column].transform(lambda x: x.ewm(span=span, adjust=False).mean())
+    return data
+
 def feature_construction(data_daily, data_monthly): 
     # daily
     print('Calculating Daily Features')
@@ -150,6 +157,7 @@ def feature_construction(data_daily, data_monthly):
     data_monthly['chmom'] = chmom_6m - chmom_12m
     data_monthly = calculate_momentum(data_monthly, col_name = 'return_monthly')
     data_monthly = calculate_momentum(data_monthly, col_name = '000905_return_monthly')
+    data_monthly = calculate_ema(data_monthly, column='zero_trade_days')
 
     data_monthly.loc[:, 'excess_return'] = data_monthly.loc[:, 'return_monthly'] - 0
     data_monthly['y'] = data_monthly[['excess_return', p.stockID]].groupby(p.stockID).shift(-1)

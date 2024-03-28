@@ -217,9 +217,9 @@ def split_dates(data_index):
     train_size = int(total_size * 0.6)
     val_test_size = (total_size - train_size) // 2
 
-    train_dates = [data_index[0].strftime('%Y-%m-%d'), data_index[train_size - 1].strftime('%Y-%m-%d')]
-    val_dates = [data_index[train_size].strftime('%Y-%m-%d'), data_index[train_size + val_test_size - 1].strftime('%Y-%m-%d')]
-    test_dates = [data_index[train_size + val_test_size].strftime('%Y-%m-%d'), data_index[-1].strftime('%Y-%m-%d')]
+    train_dates = ["2013-01-01", "2017-12-31"]
+    val_dates =  ["2018-01-01", "2019-12-31"]
+    test_dates =  ["2020-01-01", "2021-12-31"]
 
     return train_dates, val_dates, test_dates
       
