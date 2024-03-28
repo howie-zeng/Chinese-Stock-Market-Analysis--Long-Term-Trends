@@ -138,7 +138,7 @@ def hyperparameter_tuning(X_train, y_train, X_val, y_val, model_classes, n_trial
 
     return best_trials
 
-def feature_importance(model_classes, X_train, y_train, X_val, y_val, features, permutation_importance=False):
+def calculate_feature_importance(model_classes, X_train, y_train, X_val, y_val, features, permutation_importance=False):
     importance_dict = {}
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
@@ -148,15 +148,17 @@ def feature_importance(model_classes, X_train, y_train, X_val, y_val, features, 
     X_val_scaled = pd.DataFrame(X_val_scaled, columns=X_val.columns, index=X_val.index)
     progress_bar = tqdm(model_classes, desc="Calculating Feature Importance")
     for model_class in progress_bar:
-        model_name = model_class.name if hasattr(model_class, "name") else model_class.__class__.__name__
         progress_bar.set_postfix({"Model Name": model_name})
+        model_name = model_class.name if hasattr(model_class, "name") else model_class.__class__.__name__
         if 'NNModel' in model_name:
             model_class.fit(X_train_scaled, y_train, X_val_scaled, y_val)
         else:
             model_class.fit(X_train_scaled, y_train)
         original_r2 = calculate_r2_oos(y_train, model_class.predict(X_train_scaled))
         model_changes = []
+        i = 1
         for variable in features:
+            progress_bar.set_postfix({"Model Name": model_name, "Variable": variable, "n": f"{i}/{len(features)}"})
             X_modified = X_train_scaled.copy()
             if permutation_importance:
                 X_modified[variable] = np.random.permutation(X_modified[variable])
@@ -165,6 +167,7 @@ def feature_importance(model_classes, X_train, y_train, X_val, y_val, features, 
             modified_r2 = calculate_r2_oos(y_train, model_class.predict(X_modified))
             reduction = original_r2 - modified_r2
             model_changes.append(reduction)
+            i += 1
         importance_dict[model_name] = model_changes
     importance_df = pd.DataFrame(importance_dict, index=features)
     return importance_df

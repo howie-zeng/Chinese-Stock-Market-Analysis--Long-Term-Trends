@@ -36,35 +36,35 @@ class OLSModel(BaseModel):
         super().__init__()
         if params is None:
             params = {}
-        self.model = HuberRegressor(**params)
+        self.model = HuberRegressor(**params, max_iter=5000)
 
 class OLS3Model(BaseModel):
     def __init__(self, params=p.ols3_params):
         super().__init__()
         if params is None:
             params = {}
-        self.model = HuberRegressor(**params)
+        self.model = HuberRegressor(**params, max_iter=5000)
 
 class PLSModel(BaseModel):
     def __init__(self, params=p.pls_params):
         super().__init__()
         if params is None:
             params = {}
-        self.model = PLSRegression(**params)
+        self.model = PLSRegression(**params, max_iter=5000)
 
 class LASSOModel(BaseModel):
     def __init__(self, params=p.lasso_params):
         super().__init__()
         if params is None:
             params = {}
-        self.model = Lasso(**params)
+        self.model = Lasso(**params, max_iter=5000)
 
 class ElasticNetModel(BaseModel):
     def __init__(self, params=p.elasticnet_params):
         super().__init__()
         if params is None:
             params = {}
-        self.model = ElasticNet(**params)
+        self.model = ElasticNet(**params, max_iter=5000)
 
 class GBRTModel(BaseModel):
     def __init__(self, params=p.gbrt_params):
@@ -226,7 +226,6 @@ def split_dates(data_index):
 def split_train_val_test(data, y="excess_return", colsToDrop = []):
     if not isinstance(data.index, pd.DatetimeIndex):
         data.index = pd.to_datetime(data.index)
-    data['y'] = data[y].shift(-1)
     for col in [p.stockID] + colsToDrop:
         if col in data.columns:
             data.drop(col, axis=1, inplace=True)

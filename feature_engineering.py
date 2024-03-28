@@ -6,17 +6,19 @@ from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-def calculate_momentum(data_monthly):
+def calculate_momentum(data_monthly, col_name = 'return_monthly'):
     data_monthly.sort_index(inplace=True)
-    group = data_monthly.groupby(p.stockID)['return_monthly']
+    group = data_monthly.groupby(p.stockID)[col_name]
 
-    data_monthly['mom1m'] = group.transform(lambda x: x.shift(1) ) 
-    data_monthly['mom12m'] = group.transform(lambda x: x.shift(1).rolling(window=12).sum())
-    data_monthly['mom6m'] = group.transform(lambda x: x.shift(1).rolling(window=6).sum())
-    data_monthly['mom24m'] = group.transform(lambda x: x.shift(1).rolling(window=24).sum()) 
-    data_monthly['mom36m'] = group.transform(lambda x: x.shift(1).rolling(window=36).sum()) 
+    data_monthly[f'mom1m_{col_name}'] = group.transform(lambda x: x.shift(1)) 
+    data_monthly[f'mom12m_{col_name}'] = group.transform(lambda x: x.shift(1).rolling(window=12).sum())
+    data_monthly[f'mom6m_{col_name}'] = group.transform(lambda x: x.shift(1).rolling(window=6).sum())
+    data_monthly[f'mom24m_{col_name}'] = group.transform(lambda x: x.shift(1).rolling(window=24).sum()) 
+    data_monthly[f'mom36m_{col_name}'] = group.transform(lambda x: x.shift(1).rolling(window=36).sum()) 
 
     return data_monthly
+
+
 def calculate_weekly_returns(df, price_col):
     weekly_prices = df[price_col].resample('W').last()
     weekly_returns = weekly_prices.pct_change().dropna()
@@ -146,7 +148,8 @@ def feature_construction(data_daily, data_monthly):
     chmom_6m = data_monthly.groupby(p.stockID)['return_monthly'].rolling(window=6).apply(lambda x: (1+x).prod() - 1, raw=True).shift(1).reset_index(level=0, drop=True)
     chmom_12m = data_monthly.groupby(p.stockID)['return_monthly'].rolling(window=6).apply(lambda x: (1+x).prod() - 1, raw=True).shift(7).reset_index(level=0, drop=True)
     data_monthly['chmom'] = chmom_6m - chmom_12m
-    data_monthly = calculate_momentum(data_monthly)
+    data_monthly = calculate_momentum(data_monthly, col_name = 'return_monthly')
+    data_monthly = calculate_momentum(data_monthly, col_name = '000905_return_monthly')
 
     data_monthly.loc[:, 'excess_return'] = data_monthly.loc[:, 'return_monthly'] - 0
     data_monthly['y'] = data_monthly[['excess_return', p.stockID]].groupby(p.stockID).shift(-1)
@@ -168,17 +171,17 @@ def transform_features(data, scaler_name = "standard"):
     else:
         raise ValueError(f"Unsupported scaler name: {scaler_name}")
     
+    data['Upper_Band'] = calculate_pct_from_close_adj(data['Upper_Band'], data['close_adj'])
+    data['Lower_Band'] = calculate_pct_from_close_adj(data['Lower_Band'], data['close_adj'])
+
     def scale_group(group_df):
         scaled_values = scaler.fit_transform(group_df[cols_to_transform])
         group_df[cols_to_transform] = scaled_values
         return group_df
-    
-    data['Upper_Band'] = calculate_pct_from_close_adj(data['Upper_Band'], data['close_adj'])
-    data['Lower_Band'] = calculate_pct_from_close_adj(data['Lower_Band'], data['close_adj'])
 
     cols_to_transform = ['SMA',
                          'SMA_5', 'SMA_10', 'SMA_20', 'SMA_50', 'SMA_100', 'SMA_200',
-                         '000905_close', 'close_adj'
+                         '000905_close', 'close_adj', '000905_close'
                         ]
     data_scaled = data.groupby(p.stockID).apply(scale_group)
     data_scaled.reset_index(level=0, inplace=True, drop=True)

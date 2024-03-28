@@ -35,8 +35,8 @@ def read_data(files):
         merged_df.to_csv(data_path, index=True) 
     return merged_df
 
-def get_market_data(data):
-
+def get_market_data(data_daily, data_monthly):
+    # daily
     df_sector = pd.read_csv(os.path.join(p.dataPath, '000905.csv'), index_col=False, parse_dates=[0])
     df_sector = df_sector.rename(columns={df_sector.columns[0]: 'date', df_sector.columns[1]: '000905_close'})
 
@@ -44,18 +44,14 @@ def get_market_data(data):
     df_temp = df_temp.rename(columns={df_temp.columns[0]: 'date', df_temp.columns[1]: '000905_return_daily'})
 
     df_sector = pd.merge(df_sector, df_temp, on='date', how='left')
+    data_daily = pd.merge(data_daily, df_sector, on='date', how='left')
 
+    # monthly
     df_temp = pd.read_csv(os.path.join(p.dataPath, '000905_return_monthly.csv'), index_col=False, parse_dates=[0])
     df_temp = df_temp.rename(columns={df_temp.columns[0]: 'date', df_temp.columns[1]: '000905_return_monthly'})
-    df_temp['month'] = df_temp['date'].dt.to_period('m')
-    df_sector['month'] = df_sector['date'].dt.to_period('m')
 
-    df_sector =pd.merge(df_sector, df_temp[['month', '000905_return_monthly']], on='month', how='left')
-    df_sector.drop('month', inplace=True, axis=1)
-
-    data = pd.merge(data, df_sector, on='date', how='left')
-    
-    return data
+    data_monthly =pd.merge(data_monthly, df_temp[['date', '000905_return_monthly']], on='date', how='left')
+    return data_daily, data_monthly
 
 
 def data_loading(daily_files, monthly_files, daily_file_path=p.merged_data_daily, monthly_file_path=p.merged_data_monthly):
@@ -89,6 +85,7 @@ def merge_daily_and_monthly_data(merged_data_daily, merged_data_monthly):
     data_monthly = pd.merge(merged_data_daily, merged_data_monthly, on=['date', p.stockID], how='left')
     data_monthly = data_monthly.sort_index()
     # may want to drop some daily columns, but I am keeping it for know
+    
     return data_monthly
 
 def handle_crosssectional_na(data, column_missing_threshold=0.6):
