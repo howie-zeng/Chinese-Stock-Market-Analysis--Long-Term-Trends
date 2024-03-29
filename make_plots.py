@@ -50,7 +50,7 @@ def differences_in_feature_importance(first, second):
     raise NotImplementedError
 
 def plot_model_performance(results, params_to_plot):
-    filtered_params = [p for p in params_to_plot if p not in ['max_iter']]
+    filtered_params = [p for p in params_to_plot if p not in ['max_iter', 'n_jobs']]
     num_params = len(filtered_params)
     nrows = int(num_params ** 0.5)
     ncols = int(num_params / nrows) + (num_params % nrows > 0)
@@ -59,7 +59,6 @@ def plot_model_performance(results, params_to_plot):
         axes = axes.flatten()
     else:
         axes = [axes]  # Encapsulate it in a list if it's a single subplot for consistency
-    
     for i, param_name in enumerate(filtered_params):
         log = ''
         if results[param_name].mean() <= 1:

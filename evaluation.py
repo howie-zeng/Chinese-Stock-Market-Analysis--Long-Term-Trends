@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import ParameterGrid
 import concurrent.futures
+import os
 
 import parameters as p
 import model as m
@@ -34,7 +35,7 @@ def nn_tunning(num_layers_range, X_train, y_train, X_val, y_val, n_trials=100):
         model_instance = m.NNModel(params=params, input_dim=X_train.shape[1], num_layers=num_layers)
         model_fitted, scaler = m.train(X_train, y_train, model_instance, X_val, y_val)
         predictions = m.test(X_val, model_fitted, scaler)
-        r_2 = calculate_r2_oos(y_val.values, predictions)
+        r_2 = calculate_r2_oos(y_val, predictions)
         return r_2
         
     best_trials = {}   
@@ -99,46 +100,66 @@ def hyperparameter_tuning(X_train, y_train, X_val, y_val, model_classes, n_trial
             }
         elif model_name == 'XGBoostModel':
             params = {
-                'booster': trial.suggest_categorical('booster', ['gbtree']),
+                # Learning rate, expanded upper limit for broader exploration
                 'eta': trial.suggest_float('eta', 0.01, 0.3),
-                'gamma': trial.suggest_float('gamma', 0, 5),
-                'max_depth': trial.suggest_int('max_depth', 3, 10),
+                # Minimum loss reduction required to make a further partition
+                'gamma': trial.suggest_float('gamma', 1e-8, 0.5, log=True),
+                # Number of trees in the ensemble
+                'n_estimators': trial.suggest_int("n_estimators", 100, 600),
+                # Subsample ratio of the training instances
+                'subsample': trial.suggest_float('subsample', 0.6, 1),
+                # Number of parallel trees in the ensemble (for boosting types that support it)
+                'num_parallel_tree': trial.suggest_int('num_parallel_tree', 1, 10),
+                 # Subsample ratio of columns when constructing each tree
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.2, 0.6),
+                'colsample_bylevel': trial.suggest_float('colsample_bylevel', 0.2, 1),
+                'colsample_bynode': trial.suggest_float('colsample_bynode', 0.2, 0.6),
+                # Maximum depth of a tree, expanded range for complex interactions
+                'max_depth': trial.suggest_int('max_depth', 8, 30),
+                # Minimum sum of instance weight (hessian) needed in a child
                 'min_child_weight': trial.suggest_int('min_child_weight', 1, 300),
-                'subsample': trial.suggest_float('subsample', 0.5, 1),
-                'lambda': trial.suggest_float('lambda', 1e-8, 1.0, log=True),
-                'alpha': trial.suggest_float('alpha', 1e-8, 1.0, log=True),
-                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1),
-                'colsample_bylevel': trial.suggest_float('colsample_bylevel', 0.5, 1),
+                # L1 regularization term on weights
+                'lambda': trial.suggest_float('lambda', 1e-8, 1, log=True),
+                # L2 regularization term on weights
+                'alpha': trial.suggest_float('alpha', 1e-8, 1, log=True),
+                # Objective function to minimize, including options more robust to noise
                 'objective': trial.suggest_categorical('objective', ['reg:squarederror', 'reg:pseudohubererror']),
-                'n_estimators': trial.suggest_int("n_estimators", 50, 1000),
+                # Maximum number of leaves; use it with 'lossguide' grow policy
+                'max_leaves': trial.suggest_int('max_leaves', 0, 256),
             }
         else:
             model_instance = model_class(params=params)
-        
+
         model_instance = model_class(params=params)
         if 'NNModel' in model_name:
             model_fitted, scaler = m.train(X_train, y_train, model_instance, X_val, y_val)
         else:
             model_fitted, scaler = m.train(X_train, y_train, model_instance)
         predictions = m.test(X_val, model_fitted, scaler)
-        r_2 = calculate_r2_oos(y_val.values, predictions)
+        r_2 = calculate_r2_oos(y_val, predictions)
         return r_2
         
 
     best_trials = {}
+    studies = {}
     for model_class in tqdm(model_classes, desc="Tuning Models"):
         model_name = model_class().name if hasattr(model_class(), "name") else model_class().__class__.__name__
         model_class.name = model_name
         print(f"Tunning {model_name}")
         study = optuna.create_study(direction="maximize")
+        if model_name == "XGBoostModel":
+            n_jobs = 1
+        else:
+            n_jobs = -1
         objective_with_args = partial(objective, X_train=X_train, y_train=y_train, X_val=X_val, y_val=y_val, model_class=model_class, model_name=model_name)
-        study.optimize(objective_with_args, n_trials=n_trials, n_jobs=-1)
+        study.optimize(objective_with_args, n_trials=n_trials, n_jobs=n_jobs)
         best_trials[model_name] = study.best_trial.params
+        studies[model_name] = study
 
     for model_name, params in best_trials.items():
         print(f"Best trial for {model_name}:", params)
 
-    return best_trials
+    return best_trials, studies
 
 def calculate_feature_importance(model_classes, X_train, y_train, X_val, y_val, features, permutation_importance=False):
     importance_dict = {}
@@ -226,17 +247,22 @@ def fit_and_evaluate_model(model_instance, params, X_train, y_train, X_val, y_va
     }
 
 def explore_parameter_grid(model_class, param_grid, X_train, y_train, X_val, y_val):
-    X_train_copy = np.array(X_train.copy())
-    y_train_copy = np.array(y_train.copy())
-    X_val_copy = np.array(X_val.copy())
-    y_val_copy = np.array(y_val.copy())
-
     results = []
-    with concurrent.futures.ProcessPoolExecutor() as executor:
+    X_train.setflags(write=True)
+    y_train.setflags(write=True)
+    X_val.setflags(write=True)
+    y_val.setflags(write=True)
+    num_workers = os.cpu_count()
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         params_list = list(ParameterGrid(param_grid))
-        futures = {executor.submit(fit_and_evaluate_model, model_class(**params), params, X_train_copy, y_train_copy, X_val_copy, y_val_copy): params for params in params_list}
+        futures = [
+            executor.submit(fit_and_evaluate_model, model_class(**params), params, X_train, y_train, X_val, y_val)
+            for params in params_list
+        ]
         for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Exploring Parameters"):
-            results.append(future.result())
+            result = future.result()
+            if result: 
+                results.append(result)
     results_df = pd.DataFrame(results)
     return results_df
 

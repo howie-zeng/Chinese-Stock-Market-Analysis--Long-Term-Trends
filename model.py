@@ -243,7 +243,7 @@ def split_train_val_test(data, y="excess_return", colsToDrop = []):
     X_val, y_val = validation_set.drop(columns=['y']), validation_set['y']
     X_test, y_test = testing_set.drop(columns=['y']), testing_set['y']
 
-    return X_train, y_train, X_val, y_val, X_test, y_test
+    return X_train, y_train.to_numpy(), X_val, y_val.to_numpy(), X_test, y_test.to_numpy()
 
 def train(X, y, model, X_val=None, y_val=None):
     if model.name == "OLS3Model":
