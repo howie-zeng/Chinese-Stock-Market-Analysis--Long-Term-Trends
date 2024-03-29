@@ -287,8 +287,3 @@ def fit_model(X_train, X_test,  X_val, y_val, y_train, y_test, model_classes):
         print(f"{model_name}: {r_2}")
     return models_fitted, model_res, model_r_2
 
-
-
-
-
-

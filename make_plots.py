@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
 
 
 def plot_missing_values(data):
@@ -47,4 +48,38 @@ def differences_in_feature_importance(first, second):
     # NN model
     # different category of feature
     raise NotImplementedError
+
+def plot_model_performance(results, params_to_plot):
+    filtered_params = [p for p in params_to_plot if p not in ['max_iter']]
+    num_params = len(filtered_params)
+    nrows = int(num_params ** 0.5)
+    ncols = int(num_params / nrows) + (num_params % nrows > 0)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows))
+    if nrows * ncols > 1:
+        axes = axes.flatten()
+    else:
+        axes = [axes]  # Encapsulate it in a list if it's a single subplot for consistency
+    
+    for i, param_name in enumerate(filtered_params):
+        log = ''
+        if results[param_name].mean() <= 1:
+            results[param_name] = np.log(results[param_name])
+            log = "log"
+        results_grouped = results.groupby(param_name).mean()
+        train_scores = results_grouped['train_score']
+        val_scores = results_grouped['val_score']
+        param_values = results_grouped.index
+        
+        ax = axes[i]
+        ax.plot(param_values, train_scores, marker='o', linestyle='-', label='Train Score', color='tab:blue')
+        ax.plot(param_values, val_scores, marker='s', linestyle='--', label='Validation Score', color='tab:red')
+        ax.set_xlabel(f'{param_name}_{log}')
+        ax.set_ylabel('Score')
+        ax.legend()
+        ax.set_title(f'Model Performance by {param_name}')
+    for j in range(i + 1, nrows * ncols):
+        fig.delaxes(axes[j])
+    
+    plt.tight_layout()
+    plt.show()
 

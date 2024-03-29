@@ -6,6 +6,8 @@ from tqdm import tqdm
 from sklearn.inspection import permutation_importance
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import ParameterGrid
+import concurrent.futures
 
 import parameters as p
 import model as m
@@ -13,8 +15,8 @@ import re
 
 def calculate_r2_oos(y, y_hat):
     assert len(y_hat) == len(y)
-    SSR = np.sum((y - y_hat)**2)
-    SST = np.sum(y)
+    SSR = ((y - y_hat)**2).sum()
+    SST = (y**2).sum()
     res = 1 - SSR/SST
     return res
 
@@ -148,8 +150,8 @@ def calculate_feature_importance(model_classes, X_train, y_train, X_val, y_val, 
     X_val_scaled = pd.DataFrame(X_val_scaled, columns=X_val.columns, index=X_val.index)
     progress_bar = tqdm(model_classes, desc="Calculating Feature Importance")
     for model_class in progress_bar:
-        progress_bar.set_postfix({"Model Name": model_name})
         model_name = model_class.name if hasattr(model_class, "name") else model_class.__class__.__name__
+        progress_bar.set_postfix({"Model Name": model_name})
         if 'NNModel' in model_name:
             model_class.fit(X_train_scaled, y_train, X_val_scaled, y_val)
         else:
@@ -213,5 +215,28 @@ def calculate_performance_statistics(portfolio_returns):
             'Max 1M Loss': max_1m_loss * 100
         }
     return pd.DataFrame(statistics).T
+def fit_and_evaluate_model(model_instance, params, X_train, y_train, X_val, y_val):
+    model_instance.fit(X_train, y_train)
+    train_score = calculate_r2_oos(y_train, model_instance.predict(X_train))
+    val_score = calculate_r2_oos(y_val, model_instance.predict(X_val))
+    return {
+        **params,
+        'train_score': train_score,
+        'val_score': val_score
+    }
 
+def explore_parameter_grid(model_class, param_grid, X_train, y_train, X_val, y_val):
+    X_train_copy = np.array(X_train.copy())
+    y_train_copy = np.array(y_train.copy())
+    X_val_copy = np.array(X_val.copy())
+    y_val_copy = np.array(y_val.copy())
+
+    results = []
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        params_list = list(ParameterGrid(param_grid))
+        futures = {executor.submit(fit_and_evaluate_model, model_class(**params), params, X_train_copy, y_train_copy, X_val_copy, y_val_copy): params for params in params_list}
+        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Exploring Parameters"):
+            results.append(future.result())
+    results_df = pd.DataFrame(results)
+    return results_df
 
