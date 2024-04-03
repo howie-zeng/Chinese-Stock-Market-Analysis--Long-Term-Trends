@@ -64,20 +64,40 @@ def plot_model_performance(results, params_to_plot):
         axes = [axes]  # Encapsulate it in a list if it's a single subplot for consistency
     for i, param_name in enumerate(filtered_params):
         log = ''
-        if results[param_name].mean() <= 1:
+        mean = results[param_name].mean()
+        std_dev = results[param_name].std()
+        if std_dev > mean:
             results[param_name] = np.log(results[param_name])
             log = "log"
-        results_grouped = results.groupby(param_name).mean()
-        train_scores = results_grouped['train_score']
-        val_scores = results_grouped['val_score']
+        
+        # Group by parameter and calculate mean and standard deviation
+        results_grouped = results.groupby(param_name).agg({'train_score':['mean', 'std'], 'val_score':['mean', 'std']})
+        train_scores_mean = results_grouped['train_score']['mean']
+        train_scores_std = results_grouped['train_score']['std']
+        val_scores_mean = results_grouped['val_score']['mean']
+        val_scores_std = results_grouped['val_score']['std']
         param_values = results_grouped.index
         
+        # Scatter individual scores
+        for value in param_values:
+            individual_train_scores = results[results[param_name] == value]['train_score']
+            individual_val_scores = results[results[param_name] == value]['val_score']
+            # Adjust scatter points for clarity
+            jitter = np.random.normal(0, 0.01, size=len(individual_train_scores))
+            ax = axes[i]
+            ax.scatter(value + jitter, individual_train_scores, alpha=0.2, color='tab:blue')
+            ax.scatter(value + jitter, individual_val_scores, alpha=0.2, color='tab:red')
+        
         ax = axes[i]
-        ax.plot(param_values, train_scores, marker='o', linestyle='-', label='Train Score', color='tab:blue')
-        ax.plot(param_values, val_scores, marker='s', linestyle='--', label='Validation Score', color='tab:red')
+        # Plot train scores with error bars
+        ax.errorbar(param_values, train_scores_mean, yerr=train_scores_std, fmt='o-', label='Train Score', color='tab:blue', capsize=5)
+        # Plot validation scores with error bars
+        ax.errorbar(param_values, val_scores_mean, yerr=val_scores_std, fmt='s--', label='Validation Score', color='tab:red', capsize=5)
+        
         ax.set_xlabel(f'{param_name}_{log}')
         ax.set_ylabel('Score')
         ax.legend()
+        ax.grid(True)
         ax.set_title(f'Model Performance by {param_name}')
     for j in range(i + 1, nrows * ncols):
         fig.delaxes(axes[j])

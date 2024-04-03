@@ -248,17 +248,16 @@ def split_train_val_test(data, y="excess_return", colsToDrop = []):
 def train(X, y, model, X_val=None, y_val=None):
     if model.name == "OLS3Model":
         X = X[p.ols3_predictors]
-    scaler = StandardScaler()
     if 'NNModel' in model.name:
-        model.fit(scaler.fit_transform(X), y, scaler.transform(X_val), y_val)
+        model.fit(X, y, X_val, y_val)
     else:
-        model.fit(scaler.fit_transform(X), y)
-    return model, scaler
+        model.fit(X, y)
+    return model
 
-def test(X, model_fitted, scaler):
+def test(X, model_fitted):
     if model_fitted.name == "OLS3Model":
         X = X[p.ols3_predictors] 
-    predictions = model_fitted.predict(scaler.transform(X))
+    predictions = model_fitted.predict(X)
     return predictions
 
 def fit_model(X_train, X_test,  X_val, y_val, y_train, y_test, model_classes):
@@ -273,10 +272,10 @@ def fit_model(X_train, X_test,  X_val, y_val, y_train, y_test, model_classes):
         model_class.name = model_name
         print(model_name)
         if 'NNModel' in model_name:
-            model_fitted, scaler = train(X_train, y_train, model_class, X_val, y_val)
+            model_fitted = train(X_train, y_train, model_class, X_val, y_val)
         else:
-            model_fitted, scaler = train(X_train, y_train, model_class)
-        predictions = test(X_test, model_fitted, scaler)
+            model_fitted = train(X_train, y_train, model_class)
+        predictions = test(X_test, model_fitted)
         r_2 = e.calculate_r2_oos(y_test.values, predictions)
 
         models_fitted[model_name] = model_fitted

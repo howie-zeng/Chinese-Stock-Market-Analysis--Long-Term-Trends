@@ -39,18 +39,7 @@ gbrt_params = {
 rf_params = {
 }
 
-xgboost_params = {'booster': 'gbtree',
-  'eta': 0.08693501585513168,
-  'gamma': 2.553976679558631,
-  'max_depth': 4,
-  'min_child_weight': 95,
-  'subsample': 0.821636169872323,
-  'lambda': 0.00020896714441678748,
-  'alpha': 9.620818625615593e-07,
-  'colsample_bytree': 0.9759803038059722,
-  'colsample_bylevel': 0.9508900326337706,
-  'objective': 'reg:squarederror',
-  'n_estimators': 287}
+xgboost_params = {'eta': 0.14315876654070525, 'gamma': 0.15267525903299634, 'n_estimators': 259, 'subsample': 0.816012056487514, 'num_parallel_tree': 7, 'colsample_bytree': 0.7626462759013348, 'colsample_bylevel': 0.8006154025732285, 'colsample_bynode': 0.5140560102311738, 'max_depth': 9, 'min_child_weight': 6, 'lambda': 1.0107283039394311e-08, 'alpha': 0.2428371143422945, 'objective': 'reg:squarederror', 'max_leaves': 164}
 
 vasa_params = {
 }

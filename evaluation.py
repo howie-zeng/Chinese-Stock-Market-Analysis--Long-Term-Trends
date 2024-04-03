@@ -101,27 +101,27 @@ def hyperparameter_tuning(X_train, y_train, X_val, y_val, model_classes, n_trial
         elif model_name == 'XGBoostModel':
             params = {
                 # Learning rate, expanded upper limit for broader exploration
-                'eta': trial.suggest_float('eta', 0.01, 0.3),
+                'eta': trial.suggest_float('eta', 1e-8, 0.2, log=True),
                 # Minimum loss reduction required to make a further partition
-                'gamma': trial.suggest_float('gamma', 1e-8, 0.5, log=True),
+                'gamma': trial.suggest_float('gamma', 0.1, 1),
                 # Number of trees in the ensemble
-                'n_estimators': trial.suggest_int("n_estimators", 100, 600),
+                'n_estimators': trial.suggest_int("n_estimators", 10, 300),
                 # Subsample ratio of the training instances
-                'subsample': trial.suggest_float('subsample', 0.6, 1),
+                'subsample': trial.suggest_float('subsample', 0.75, 1),
                 # Number of parallel trees in the ensemble (for boosting types that support it)
                 'num_parallel_tree': trial.suggest_int('num_parallel_tree', 1, 10),
                  # Subsample ratio of columns when constructing each tree
-                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.2, 0.6),
-                'colsample_bylevel': trial.suggest_float('colsample_bylevel', 0.2, 1),
-                'colsample_bynode': trial.suggest_float('colsample_bynode', 0.2, 0.6),
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.75, 1),
+                'colsample_bylevel': trial.suggest_float('colsample_bylevel', 0.75, 1),
+                'colsample_bynode': trial.suggest_float('colsample_bynode', 0.5, 0.8),
                 # Maximum depth of a tree, expanded range for complex interactions
                 'max_depth': trial.suggest_int('max_depth', 8, 30),
                 # Minimum sum of instance weight (hessian) needed in a child
                 'min_child_weight': trial.suggest_int('min_child_weight', 1, 300),
                 # L1 regularization term on weights
-                'lambda': trial.suggest_float('lambda', 1e-8, 1, log=True),
+                'lambda': trial.suggest_float('lambda', 1e-8, 5, log=True),
                 # L2 regularization term on weights
-                'alpha': trial.suggest_float('alpha', 1e-8, 1, log=True),
+                'alpha': trial.suggest_float('alpha', 1e-8, 5, log=True),
                 # Objective function to minimize, including options more robust to noise
                 'objective': trial.suggest_categorical('objective', ['reg:squarederror', 'reg:pseudohubererror']),
                 # Maximum number of leaves; use it with 'lossguide' grow policy
@@ -132,10 +132,10 @@ def hyperparameter_tuning(X_train, y_train, X_val, y_val, model_classes, n_trial
 
         model_instance = model_class(params=params)
         if 'NNModel' in model_name:
-            model_fitted, scaler = m.train(X_train, y_train, model_instance, X_val, y_val)
+            model_fitted = m.train(X_train, y_train, model_instance, X_val, y_val)
         else:
-            model_fitted, scaler = m.train(X_train, y_train, model_instance)
-        predictions = m.test(X_val, model_fitted, scaler)
+            model_fitted = m.train(X_train, y_train, model_instance)
+        predictions = m.test(X_val, model_fitted)
         r_2 = calculate_r2_oos(y_val, predictions)
         return r_2
         
@@ -236,6 +236,7 @@ def calculate_performance_statistics(portfolio_returns):
             'Max 1M Loss': max_1m_loss * 100
         }
     return pd.DataFrame(statistics).T
+
 def fit_and_evaluate_model(model_instance, params, X_train, y_train, X_val, y_val):
     model_instance.fit(X_train, y_train)
     train_score = calculate_r2_oos(y_train, model_instance.predict(X_train))
@@ -246,23 +247,28 @@ def fit_and_evaluate_model(model_instance, params, X_train, y_train, X_val, y_va
         'val_score': val_score
     }
 
-def explore_parameter_grid(model_class, param_grid, X_train, y_train, X_val, y_val):
+def explore_parameter_grid(model_class, param_grid, X_train, y_train, X_val, y_val, multiprocess=True):
     results = []
-    X_train.setflags(write=True)
-    y_train.setflags(write=True)
-    X_val.setflags(write=True)
-    y_val.setflags(write=True)
-    num_workers = os.cpu_count()
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-        params_list = list(ParameterGrid(param_grid))
-        futures = [
-            executor.submit(fit_and_evaluate_model, model_class(**params), params, X_train, y_train, X_val, y_val)
-            for params in params_list
-        ]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Exploring Parameters"):
-            result = future.result()
-            if result: 
-                results.append(result)
+    params_list = list(ParameterGrid(param_grid))
+    if not multiprocess:
+        for params in tqdm(params_list):
+            result = fit_and_evaluate_model(model_class(**params), params, X_train, y_train, X_val, y_val)
+            results.append(result)
+    else:
+        X_train.setflags(write=True)
+        y_train.setflags(write=True)
+        X_val.setflags(write=True)
+        y_val.setflags(write=True)
+        num_workers = os.cpu_count()
+        with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = [
+                executor.submit(fit_and_evaluate_model, model_class(**params), params, X_train, y_train, X_val, y_val)
+                for params in params_list
+            ]
+            for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Exploring Parameters"):
+                result = future.result()
+                if result: 
+                    results.append(result)
     results_df = pd.DataFrame(results)
     return results_df
 
