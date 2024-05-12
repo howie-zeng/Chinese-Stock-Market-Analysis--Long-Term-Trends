@@ -50,58 +50,62 @@ def differences_in_feature_importance(first, second):
     raise NotImplementedError
 
 def plot_model_performance(results, params_to_plot):
-    filtered_params = []
-    for key, value in params_to_plot.items():
-        if len(value) > 1:
-            filtered_params.append(key)
+    filtered_params = [key for key, value in params_to_plot.items() if len(value) > 1]
     num_params = len(filtered_params)
-    nrows = int(num_params ** 0.5)
-    ncols = int(num_params / nrows) + (num_params % nrows > 0)
+    nrows = int(np.sqrt(num_params))
+    ncols = int(np.ceil(num_params / nrows))
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 6 * nrows))
-    if nrows * ncols > 1:
-        axes = axes.flatten()
-    else:
-        axes = [axes]  # Encapsulate it in a list if it's a single subplot for consistency
+    axes = axes.flatten() if nrows * ncols > 1 else [axes]
+
     for i, param_name in enumerate(filtered_params):
-        log = ''
-        mean = results[param_name].mean()
-        std_dev = results[param_name].std()
-        if std_dev > mean:
-            results[param_name] = np.log(results[param_name])
-            log = "log"
-        
         # Group by parameter and calculate mean and standard deviation
-        results_grouped = results.groupby(param_name).agg({'train_score':['mean', 'std'], 'val_score':['mean', 'std']})
+        results_grouped = results.groupby(param_name).agg({'train_score': ['mean', 'std'], 'val_score': ['mean', 'std']})
         train_scores_mean = results_grouped['train_score']['mean']
         train_scores_std = results_grouped['train_score']['std']
         val_scores_mean = results_grouped['val_score']['mean']
         val_scores_std = results_grouped['val_score']['std']
         param_values = results_grouped.index
-        
-        # Scatter individual scores
-        for value in param_values:
+
+        # Always handle as categorical parameters
+        param_values_numeric = range(len(param_values))  # Use numeric indices for plotting
+
+        ax = axes[i]
+        for j, value in enumerate(param_values):
+            numeric_value = j
+            jitter = np.random.normal(0, 0.01, size=len(results[results[param_name] == value]))
             individual_train_scores = results[results[param_name] == value]['train_score']
             individual_val_scores = results[results[param_name] == value]['val_score']
-            # Adjust scatter points for clarity
-            jitter = np.random.normal(0, 0.01, size=len(individual_train_scores))
-            ax = axes[i]
-            ax.scatter(value + jitter, individual_train_scores, alpha=0.2, color='tab:blue')
-            ax.scatter(value + jitter, individual_val_scores, alpha=0.2, color='tab:red')
+            
+            ax.scatter(numeric_value + jitter, individual_train_scores, alpha=0.2, color='tab:blue')
+            ax.scatter(numeric_value + jitter, individual_val_scores, alpha=0.2, color='tab:red')
         
-        ax = axes[i]
-        # Plot train scores with error bars
-        ax.errorbar(param_values, train_scores_mean, yerr=train_scores_std, fmt='o-', label='Train Score', color='tab:blue', capsize=5)
-        # Plot validation scores with error bars
-        ax.errorbar(param_values, val_scores_mean, yerr=val_scores_std, fmt='s--', label='Validation Score', color='tab:red', capsize=5)
+        # Plot mean scores with error bars
+        ax.errorbar(param_values_numeric, train_scores_mean, yerr=train_scores_std, fmt='o-', label='Train Score', color='tab:blue', capsize=5)
+        ax.errorbar(param_values_numeric, val_scores_mean, yerr=val_scores_std, fmt='s--', label='Validation Score', color='tab:red', capsize=5)
         
-        ax.set_xlabel(f'{param_name}_{log}')
+        # Adjust x-ticks for categorical parameters
+        ax.set_xticks(param_values_numeric)
+        ax.set_xticklabels(param_values, rotation=45, ha='right')
+        
+        ax.set_xlabel(param_name)
         ax.set_ylabel('Score')
         ax.legend()
         ax.grid(True)
         ax.set_title(f'Model Performance by {param_name}')
+
+    # Remove unused axes
     for j in range(i + 1, nrows * ncols):
         fig.delaxes(axes[j])
-    
+
     plt.tight_layout()
     plt.show()
+
+def plot_features(data, columns, target):
+    for col in columns:
+        plt.figure(figsize=(10, 6))
+        plt.scatter(np.log(data[col]), data[target], alpha=0.5)
+        plt.title(f'Relationship between {col} and {target}')
+        plt.xlabel(col)
+        plt.ylabel(target)
+        plt.show()
 

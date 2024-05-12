@@ -94,40 +94,60 @@ class VASAModel(BaseModel):
             params = {}
         self.model = None
 
-class NNModel(BaseModel):
-    def __init__(self, params=p.nn_params, input_dim=1, num_layers=1):
-        super().__init__()
+class NNModel(nn.Module):
+    #activation function
+    def __init__(self, params=p.nn_params, input_dim=1):
+        super(NNModel, self).__init__()
         if params is None or len(params) < 1:
             params = {
-                'architecture': [32, 16, 8, 4, 2][:num_layers], 
+                'num_layers': 1,
                 'loss': 'mse',                   
                 'lambda': 0.0001,                 
                 'learning_rate': 0.001,       
-                'batch_size': 64,               
-                'output_dim': 1                 
+                'batch_size': 10000,               
+                'activation': 'Relu',
+                'batch_norm': True,
+                'patience': 5,
+                'output_dim': 1,
             }
+        self.params = params
         self.input_dim = input_dim
-        self.num_layers = num_layers
-        architecture = params['architecture']
+        self.num_layers = params['num_layers']
+        architecture = [32, 16, 8, 4, 2][:self.num_layers]
         output_dim = params['output_dim']
+        self.batch_norm = params['batch_norm']
+        self.patience = params['patience']
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        layers =  self._build_layers(input_dim, architecture, output_dim)
+        self.activation_function = self._select_activation_function(params['activation'])
+        self.layers =  self._build_layers(input_dim, architecture, output_dim)
         
-        self.model = nn.Sequential(*layers).to(self.device)
-        self.name = f"{self.__class__.__name__}_nn{num_layers}"
+        self.model = nn.Sequential(*self.layers).to(self.device)
+        self.name = f"{self.__class__.__name__}_nn{self.num_layers}"
         self.batch_size = params['batch_size']
 
         self.criterion = self._select_loss_function(params['loss'])
         self.optimizer = optim.Adam(self.model.parameters(), lr=params['learning_rate'], weight_decay=params['lambda'])
+
         
     def _build_layers(self, input_dim, architecture, output_dim):
         layers = []
         for i, units in enumerate(architecture):
             layers.append(nn.Linear(input_dim if i == 0 else architecture[i-1], units))
-            layers.append(nn.ReLU())
+            if i < len(architecture) - 1: 
+                if self.batch_norm:
+                    layers.append(nn.BatchNorm1d(units))  # Batch normalization
+                layers.append(self.activation_function)
+                # layers.append(nn.Dropout(0.5)) 
+            # else:
+            #     layers.append(self.activation_function)  # Final ReLU without dropout for output layer consistency
         layers.append(nn.Linear(architecture[-1], output_dim))
-        return layers   
+        return layers
+    
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
     
     def _select_loss_function(self, loss_name):
         if loss_name == 'mse':
@@ -136,30 +156,38 @@ class NNModel(BaseModel):
             return nn.HuberLoss()
         else:
             raise ValueError(f"Unknown loss function: {loss_name}")
+    def _select_activation_function(self, activation_name):
+        if activation_name == 'Relu':
+            return nn.ReLU()
+        elif activation_name == 'ELU':
+            return nn.ELU()
+        elif activation_name == "LeakyReLU":
+            return nn.LeakyReLU()
+
     
     def preprocess_nas(self, X):
         X_mask = X.isnull().astype(float)
         X_preprocessed = pd.concat([X, X_mask], axis=1)
         return X_preprocessed
 
-    def fit(self, X, y, X_val=None, y_val=None, num_epochs=100, batch_size=64, patience=5):
+    def fit(self, X, y, X_val=None, y_val=None, num_epochs=100):
         if isinstance(X, pd.DataFrame):
-            X_numpy = X.values.astype(np.float32)
+            X_numpy = X.astype(np.float32)
         else:
             X_numpy = X.astype(np.float32)
         X_tensor = torch.tensor(X_numpy, dtype=torch.float32).to(self.device)
-        y_tensor = torch.tensor(y.values.astype(np.float32), dtype=torch.float32).to(self.device)
+        y_tensor = torch.tensor(y.astype(np.float32), dtype=torch.float32).to(self.device)
 
         if X_val is not None and y_val is not None:
             if isinstance(X_val, pd.DataFrame):
-                X_val_numpy = X_val.values.astype(np.float32)
+                X_val_numpy = X_val.astype(np.float32)
             else:
                 X_val_numpy = X_val.astype(np.float32)
             X_val_tensor = torch.tensor(X_val_numpy, dtype=torch.float32).to(self.device)
-            y_val_tensor = torch.tensor(y_val.values.astype(np.float32), dtype=torch.float32).to(self.device)
+            y_val_tensor = torch.tensor(y_val.astype(np.float32), dtype=torch.float32).to(self.device)
 
         dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
         
         best_val_loss = float('inf')
         epochs_without_improvement = 0
@@ -191,11 +219,11 @@ class NNModel(BaseModel):
                     else:
                         epochs_without_improvement += 1
                     
-                    if epochs_without_improvement >= patience:
+                    if epochs_without_improvement >= self.patience:
                         print(f"Early stopping triggered at epoch {epoch + 1}")
                         break  # Stop training
             
-            progress_bar.set_postfix({"Training loss": epoch_loss, "Validation loss": val_loss if X_val is not None and y_val is not None else "N/A"})
+            progress_bar.set_postfix({"Training loss": epoch_loss, "Validation loss": val_loss if X_val is not None and y_val is not None else "N/A", "Parameter": self.params})
         
     def predict(self, X):
         # X = self.preprocess_nas(X)

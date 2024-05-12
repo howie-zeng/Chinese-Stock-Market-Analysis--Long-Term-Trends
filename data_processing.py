@@ -92,11 +92,11 @@ def handle_crosssectional_na(data, column_missing_threshold=0.6):
     column_missing_percentage = data.isna().mean()
     excluded_columns = column_missing_percentage[column_missing_percentage > column_missing_threshold].index
     if len(excluded_columns) > 0:
-        print(f"Excluding columns with missing values exceeding {column_missing_threshold * 100}%: {', '.join(excluded_columns)}")
+        print(f"Excluding {len(excluded_columns)} columns with missing values exceeding {column_missing_threshold * 100}%: {', '.join(excluded_columns)}")
         print("\n")
 
-    columns_to_exclude = ['Ticker', 'close', 'close_adj']
-    fillna_columns = [col for col in data.columns if col not in columns_to_exclude]
+    columns_to_exclude = ['Ticker', 'close', 'close_adj', 'sector'] 
+    fillna_columns = [col for col in data.columns if col not in excluded_columns and col not in columns_to_exclude]
 
     row_missing_percentage = data[fillna_columns].isna().mean(axis=1)
     row_missing_threshold = row_missing_percentage[row_missing_percentage != 0].mean() + 1.96 * 2 * row_missing_percentage[row_missing_percentage != 0].std()
